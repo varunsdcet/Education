@@ -1,22 +1,25 @@
 {
   "name": "school-backend",
   "version": "1.0.0",
-  "description": "",
+  "description": "School backend API with MongoDB",
   "main": "index.js",
+  "type": "commonjs",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^5.1.0",
-    "firebase-admin": "^13.5.0",
     "jsonwebtoken": "^9.0.2",
+    "mongoose": "^7.4.0",
     "multer": "^2.0.2",
-    "nodemon": "^3.1.10",
     "pdf-parse": "^1.1.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
   }
 }
