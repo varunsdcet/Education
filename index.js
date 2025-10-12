@@ -190,6 +190,28 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
     res.status(500).json({ success: false, message: err.message });
   }
 });
+app.post("/update/chapter-content", verifyToken, async (req, res) => {
+  try {
+    const { chapterId, content } = req.body;
+
+    if (!chapterId || !content) {
+      return res.status(400).json({ success: false, message: "chapterId and content are required" });
+    }
+
+    const existingRecord = await ChapterContentModel.findOne({ chapterId });
+    if (!existingRecord) {
+      return res.status(404).json({ success: false, message: "No record found for this chapterId" });
+    }
+
+    existingRecord.content = content;
+    await existingRecord.save();
+
+    res.json({ success: true, message: "Content updated successfully" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 
 // --- Get multiple chapters content ---
 app.post("/content/multiple", async (req, res) => {
