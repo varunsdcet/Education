@@ -5,7 +5,8 @@ const jwt = require("jsonwebtoken");
 const multer = require("multer");
 const pdfParse = require("pdf-parse");
 const mongoose = require("mongoose");
-
+const Tesseract = require("tesseract.js");
+const { fromBuffer } = require("pdf2pic"); // CommonJS version
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -176,25 +177,36 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
     const { chapterId } = req.body;
     if (!chapterId || !req.file) return res.status(400).json({ success: false, message: "chapterId & file required" });
 
-    // Parse PDF
-    const data = await pdfParse(req.file.buffer);
+    // Save temp PDF
+    const tempPath = path.join(__dirname, "temp.pdf");
+    fs.writeFileSync(tempPath, req.file.buffer);
 
-    // Extract text and normalize for Hindi, English, LaTeX
-    let extractedText = (data.text || "").normalize("NFC");
+    // Convert PDF to images
+    const converter = fromBuffer(req.file.buffer, { density: 150, format: "png" });
+    const images = await converter(0, true); // all pages
 
-    // Save to DB (upsert)
+    let fullText = "";
+    for (let i = 0; i < images.length; i++) {
+      const { data: { text } } = await Tesseract.recognize(Buffer.from(images[i].base64, "base64"), "hin+eng");
+      fullText += text + "\n\n";
+    }
+
+    // Save to DB
     await ChapterContentModel.findOneAndUpdate(
       { chapterId },
-      { chapterId, content: extractedText, fileName: req.file.originalname, size: req.file.size },
+      { chapterId, content: fullText, fileName: req.file.originalname, size: req.file.size },
       { upsert: true }
     );
 
-    res.json({ success: true, message: "PDF text extracted and saved" });
+    // Delete temp PDF
+    fs.unlinkSync(tempPath);
+
+    res.json({ success: true, message: "PDF text extracted using OCR and saved" });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
-
 // --- Get multiple chapters content ---
 app.post("/content/multiple", async (req, res) => {
   const { chapterIds } = req.body;
