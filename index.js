@@ -252,7 +252,16 @@ app.get("/public/content/:chapterId", async (req, res) => {
   res.json({ success: true, content });
 });
 
+app.post("/public/content/multiple", async (req, res) => {
+  const { chapterIds } = req.body;
+  if (!Array.isArray(chapterIds) || chapterIds.length === 0)
+    return res.status(400).json({ success: false, message: "chapterIds array required" });
 
+  const items = await ChapterContentModel.find({ chapterId: { $in: chapterIds } });
+  const combinedText = items.map(i => i.content).join("\n\n");
+
+  res.json({ success: true, combinedText, items });
+});
 // --- Start server ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
