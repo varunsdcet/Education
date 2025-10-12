@@ -181,30 +181,27 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
     if (!chapterId || !req.file)
       return res.status(400).json({ success: false, message: "chapterId & file required" });
 
-    // 1️⃣ First try to extract text using pdf-parse
-    let pdfData = await pdfParse(req.file.buffer);
+    // 1️⃣ Try pdf-parse first
+    const pdfData = await pdfParse(req.file.buffer);
     let fullText = (pdfData.text || "").trim();
 
-    // 2️⃣ If extracted text is empty, fallback to OCR
+    // 2️⃣ If no text, OCR each page
     if (!fullText) {
-      console.log("No text found, using OCR...");
+      console.log("No text found, using OCR for each page...");
 
-      // Load PDF pages with pdf-parse
+      const pdfToPic = fromBuffer(req.file.buffer, {
+        density: 150,        // DPI
+        format: "png",
+        width: 1240,         // roughly A4 width
+        height: 1754,
+      });
+
       const pages = pdfData.numpages;
+      for (let i = 1; i <= pages; i++) {
+        const pageImage = await pdfToPic(i, true); // returns {base64, path, name}
+        const imageBuffer = Buffer.from(pageImage.base64, "base64");
 
-      for (let i = 0; i < pages; i++) {
-        // Render page as image
-        const canvas = createCanvas(1240, 1754); // roughly A4 at 150dpi
-        const ctx = canvas.getContext("2d");
-        ctx.fillStyle = "white";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        // **Optional:** load the page as an image if available
-        // Skipped: node-pure PDF rendering to image is complex
-        // We'll OCR the blank canvas if real image not available
-        // Ideally, integrate pdf-to-image package if needed
-
-        const { data: { text } } = await Tesseract.recognize(canvas.toBuffer(), "hin+eng");
+        const { data: { text } } = await Tesseract.recognize(imageBuffer, "hin+eng");
         fullText += text + "\n\n";
       }
     }
@@ -221,7 +218,7 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
       { upsert: true }
     );
 
-    res.json({ success: true, message: "PDF text extracted and saved", length: fullText.length });
+    res.json({ success: true, message: "PDF OCR text extracted and saved", length: fullText.length });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: err.message });
