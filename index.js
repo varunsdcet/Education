@@ -170,15 +170,19 @@ app.delete("/chapter/delete/:id", verifyToken, async (req, res) => {
   res.json({ success: true });
 });
 
-// --- PDF Upload & Extract Text ---
+// --- PDF Upload & Extract Text (Hindi + English + LaTeX universal) ---
 app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => {
   try {
     const { chapterId } = req.body;
     if (!chapterId || !req.file) return res.status(400).json({ success: false, message: "chapterId & file required" });
 
+    // Parse PDF
     const data = await pdfParse(req.file.buffer);
-    const extractedText = data.text || "";
 
+    // Extract text and normalize for Hindi, English, LaTeX
+    let extractedText = (data.text || "").normalize("NFC");
+
+    // Save to DB (upsert)
     await ChapterContentModel.findOneAndUpdate(
       { chapterId },
       { chapterId, content: extractedText, fileName: req.file.originalname, size: req.file.size },
@@ -204,8 +208,7 @@ app.post("/content/multiple", async (req, res) => {
 });
 
 // --- PUBLIC APIs (No token required) ---
-
-// Public Class List
+// Reusing your existing public endpoints
 app.get("/public/class/list", async (req, res) => {
   const classes = await ClassModel.find();
   const result = await Promise.all(classes.map(async cls => {
@@ -215,7 +218,6 @@ app.get("/public/class/list", async (req, res) => {
   res.json({ success: true, items: result });
 });
 
-// Public Subject List
 app.get("/public/subject/list/:classId", async (req, res) => {
   const subjects = await SubjectModel.find({ classId: req.params.classId });
   const result = await Promise.all(subjects.map(async subj => {
@@ -225,7 +227,6 @@ app.get("/public/subject/list/:classId", async (req, res) => {
   res.json({ success: true, items: result });
 });
 
-// Public Book List
 app.get("/public/book/list/:subjectId", async (req, res) => {
   const books = await BookModel.find({ subjectId: req.params.subjectId });
   const result = await Promise.all(books.map(async book => {
@@ -235,7 +236,6 @@ app.get("/public/book/list/:subjectId", async (req, res) => {
   res.json({ success: true, items: result });
 });
 
-// Public Chapter List
 app.get("/public/chapter/list/:bookId", async (req, res) => {
   const chapters = await ChapterModel.find({ bookId: req.params.bookId });
   const result = await Promise.all(chapters.map(async chap => {
@@ -245,7 +245,6 @@ app.get("/public/chapter/list/:bookId", async (req, res) => {
   res.json({ success: true, items: result });
 });
 
-// Public PDF Content
 app.get("/public/content/:chapterId", async (req, res) => {
   const content = await ChapterContentModel.findOne({ chapterId: req.params.chapterId });
   if (!content) return res.status(404).json({ success: false, message: "No content found" });
@@ -262,6 +261,7 @@ app.post("/public/content/multiple", async (req, res) => {
 
   res.json({ success: true, combinedText, items });
 });
+
 // --- Start server ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
