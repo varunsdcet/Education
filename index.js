@@ -65,17 +65,115 @@ function verifyToken(req, res, next) {
   }
 }
 
+// --- Enhanced OCR Junk Filtering Function ---
+function filterOCRJunk(text) {
+  if (!text) return "";
+  
+  return text
+    .split('\n')
+    .filter(line => {
+      const trimmed = line.trim();
+      
+      // Skip empty lines and very short lines
+      if (!trimmed || trimmed.length < 5) return false;
+      
+      // Skip file paths and image references
+      if (/(\.jpg|\.jpeg|\.png|\.indd|\.pdf|Link:|Auther:|Author:|Panoramic|view\d*)/i.test(trimmed)) return false;
+      
+      // Skip date formats and page numbers (like "01-07-2025 2.10.46 PM")
+      if (/\d{1,2}-\d{1,2}-\d{4}.*\d{1,2}\.\d{2}\.\d{2}\s*(AM|PM)/.test(trimmed)) return false;
+      
+      // Skip lines that are mostly numbers and special characters
+      if (/^[\d\s\.\-–:]+$/.test(trimmed)) return false;
+      
+      // Skip lines with excessive numbers (more than 30% numbers)
+      const digitCount = (trimmed.match(/\d/g) || []).length;
+      const totalCharCount = trimmed.length;
+      if (digitCount / totalCharCount > 0.3) return false;
+      
+      // Count Hindi characters to ensure substantial Hindi content
+      const hindiCharCount = (trimmed.match(/[ऀ-ॿ]/g) || []).length;
+      const englishCharCount = (trimmed.match(/[a-zA-Z]/g) || []).length;
+      
+      // Prefer lines with more Hindi content than English
+      return hindiCharCount >= englishCharCount;
+    })
+    .map(line => line.trim())
+    .join('\n');
+}
+
+// --- Dynamic Hindi Text Cleaning Function ---
+function cleanHindiTextEnhanced(rawText) {
+  if (!rawText || typeof rawText !== 'string') return "";
+  
+  return rawText
+    // Step 1: Normalize to NFC form (combines characters properly)
+    .normalize("NFC")
+    
+    // Step 2: Fix common OCR segmentation issues
+    // Remove newlines and spaces between Hindi characters (within words)
+    .replace(/([ऀ-ॿ])\s*\n\s*([ऀ-ॿ])/g, '$1$2')
+    .replace(/([ऀ-ॿ])\s+([ऀ-ॿ])/g, '$1$2')
+    
+    // Step 3: Dynamic duplicate character removal
+    // Remove 2+ consecutive identical Hindi characters but keep legitimate doubles
+    .replace(/([ऀ-ॿ])\1+/g, (match, char) => {
+      // Keep legitimate double consonants in Hindi (like क्क, त्त, etc.)
+      const legitimateDoubles = ['क्क', 'त्त', 'द्ध', 'न्न', 'म्म', 'ल्ल', 'त्त', 'ष्ठ', 'श्च', 'स्स'];
+      if (legitimateDoubles.includes(match)) return match;
+      return char; // Remove unnecessary duplicates
+    })
+    
+    // Step 4: Fix common vowel/consonant combinations
+    // Matra (vowel signs) corrections
+    .replace(/ि([क-ह])/g, '$1ि') // Fix half 'i' matra position
+    .replace(/््+/g, '्') // Remove duplicate halants
+    
+    // Step 5: Fix specific common OCR errors dynamically
+    .replace(/([क-ह])([ा-ौ])\2+/g, '$1$2') // Remove duplicate matras
+    .replace(/([अ-औ])\1+/g, '$1') // Remove duplicate independent vowels
+    
+    // Step 6: Clean up punctuation and spaces
+    .replace(/[॰ॱ]/g, '।') // Normalize different danda characters to standard ।
+    .replace(/[|\/\\_~`@#$%^&*+=\[\]{}<>]/g, '') // Remove unwanted symbols
+    .replace(/["“”]/g, '"') // Normalize quotes
+    .replace(/['‘’]/g, "'") // Normalize apostrophes
+    
+    // Step 7: Advanced line cleaning with context awareness
+    .split('\n')
+    .map(line => {
+      // Remove lines that are just numbers or symbols
+      if (/^[\d\s\.\-–,;:!?]*$/.test(line)) return '';
+      
+      // Fix common word breaks at line endings
+      return line
+        .replace(/\s+([,\.;:!?।])/g, '$1') // Remove space before punctuation
+        .replace(/([क-ह])\s*-\s*([क-ह])/g, '$1$2') // Fix hyphen-separated words
+        .trim();
+    })
+    .filter(line => {
+      // Filter out empty lines and junk lines
+      const trimmed = line.trim();
+      return trimmed.length > 1 && // At least 2 characters
+             !/^[\d\s\W]+$/.test(trimmed) && // Not just numbers/symbols
+             !/^[\.\-–_\s]+$/.test(trimmed); // Not just dots/dashes
+    })
+    .join('\n')
+    
+    // Step 8: Final whitespace normalization
+    .replace(/\n{3,}/g, '\n\n') // Max 2 consecutive newlines
+    .replace(/[ \t]{2,}/g, ' ') // Multiple spaces to single space
+    .replace(/\s+\./g, '.') // Remove spaces before periods
+    .replace(/\s+,/g, ',') // Remove spaces before commas
+    
+    // Step 9: Paragraph detection and formatting
+    .replace(/([.!?।])\s*\n\s*([ऀ-ॿ])/g, '$1\n\n$2') // Add paragraph breaks after sentences
+    .trim();
+}
+
 // --- Clean Hindi Text Function ---
 function cleanHindiText(rawText) {
-  return rawText
-    .normalize("NFC")
-    .replace(/[^\u0900-\u097F0-9a-zA-Z\s.,;!?।\-–]/g, '') // remove extra characters
-    .replace(/\n{2,}/g, '\n') // multiple newlines → single
-    .replace(/[ \t]+/g, ' ') // multiple spaces → single
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line.length > 0)
-    .join('\n');
+  return cleanHindiTextEnhanced(rawText);
 }
 
 // --- CRUD APIs (Class, Subject, Book, Chapter) ---
@@ -188,36 +286,69 @@ app.delete("/chapter/delete/:id", verifyToken, async (req, res) => {
   res.json({ success: true });
 });
 
-// --- PDF Upload & OCR ---
+// --- Enhanced PDF Upload & OCR ---
 app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => {
   try {
     const { chapterId } = req.body;
     if (!chapterId || !req.file) return res.status(400).json({ success: false, message: "chapterId & file required" });
 
-    let pdfData = await pdfParse(req.file.buffer);
-    let fullText = (pdfData.text || "").trim();
+    let fullText = "";
 
-    if (!fullText) {
-      console.log("No text found, performing page-by-page OCR...");
+    // First try direct PDF text extraction
+    try {
+      const pdfData = await pdfParse(req.file.buffer);
+      fullText = (pdfData.text || "").trim();
+    } catch (parseError) {
+      console.log("PDF parse failed, proceeding with OCR...");
+    }
 
-      const options = { density: 150, saveFilename: "temp", savePath: "./", format: "png", width: 1240, height: 1754 };
+    // If no text found or very little text, use OCR
+    if (!fullText || fullText.length < 50) {
+      console.log("Performing page-by-page OCR with enhanced settings...");
+
+      const options = {
+        density: 300, // Higher DPI for better accuracy
+        saveFilename: "temp",
+        savePath: "./",
+        format: "png", 
+        width: 2480,   // Higher resolution
+        height: 3508,
+        quality: 100
+      };
+
       const pdfConverter = fromBuffer(req.file.buffer, options);
-      fullText = "";
+      
+      // Get number of pages
+      const pdfData = await pdfParse(req.file.buffer);
+      const numPages = pdfData.numpages || 1;
 
-      for (let i = 1; i <= pdfData.numpages; i++) {
-        const page = await pdfConverter(i);
-        const imgBuffer = Buffer.from(page.base64, "base64");
-        const { data: { text } } = await Tesseract.recognize(imgBuffer, "hin+eng", { logger: m => console.log(`Page ${i}:`, m) });
-        fullText += text + "\n\n";
+      for (let i = 1; i <= numPages; i++) {
+        try {
+          const page = await pdfConverter(i);
+          const imgBuffer = Buffer.from(page.base64, "base64");
+          
+          // Enhanced Tesseract configuration for Hindi
+          const { data: { text } } = await Tesseract.recognize(imgBuffer, "hin+eng", {
+            logger: m => console.log(`Page ${i}:`, m),
+            oem: 1, // Use LSTM engine only
+            psm: 6, // Uniform block of text
+            tessedit_pageseg_mode: 6,
+            tessedit_char_whitelist: 'ऀ-ॿ०-९a-zA-Z\\s.,;!?।\-–\'()'
+          });
+          
+          // Apply junk filtering immediately after OCR
+          const cleanedPageText = filterOCRJunk(text);
+          fullText += cleanedPageText + "\n\n";
+          
+          console.log(`Page ${i} OCR completed. Clean text length: ${cleanedPageText.length}`);
+        } catch (pageError) {
+          console.error(`Error processing page ${i}:`, pageError);
+        }
       }
     }
 
-    fullText = fullText
-      .normalize("NFC")
-      .replace(/[^\u0900-\u097F0-9a-zA-Z\s.,;!?।\-–]/g, '')
-      .replace(/\n{2,}/g, '\n')
-      .replace(/[ \t]+/g, ' ')
-      .split('\n').map(line => line.trim()).join('\n');
+    // Enhanced Hindi text cleaning
+    fullText = cleanHindiTextEnhanced(fullText);
 
     await ChapterContentModel.findOneAndUpdate(
       { chapterId },
@@ -225,9 +356,14 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
       { upsert: true }
     );
 
-    res.json({ success: true, message: "PDF OCR completed and saved", length: fullText.length });
+    res.json({ 
+      success: true, 
+      message: "PDF OCR completed and saved", 
+      length: fullText.length,
+      preview: fullText.substring(0, 200) + "..." 
+    });
   } catch (err) {
-    console.error(err);
+    console.error("PDF upload error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -303,6 +439,28 @@ app.post("/public/content/multiple", async (req, res) => {
   const items = await ChapterContentModel.find({ chapterId: { $in: chapterIds } });
   const combinedText = cleanHindiText(items.map(i => i.content).join("\n\n"));
   res.json({ success: true, combinedText, items });
+});
+
+// --- Test PDF Processing Endpoint ---
+app.post("/test-pdf-processing", upload.single("file"), async (req, res) => {
+  try {
+    const pdfData = await pdfParse(req.file.buffer);
+    let extractedText = pdfData.text || "";
+    
+    const result = {
+      directText: {
+        content: extractedText,
+        length: extractedText.length,
+        preview: extractedText.substring(0, 300)
+      },
+      needsOCR: !extractedText || extractedText.length < 50,
+      filteredText: filterOCRJunk(extractedText)
+    };
+    
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // --- Start server ---
