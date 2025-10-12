@@ -177,31 +177,34 @@ app.delete("/chapter/delete/:id", verifyToken, async (req, res) => {
 app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => {
   try {
     const { chapterId } = req.body;
-    if (!chapterId || !req.file) return res.status(400).json({ success: false, message: "chapterId & file required" });
+    if (!chapterId || !req.file)
+      return res.status(400).json({ success: false, message: "chapterId & file required" });
 
-    // Save temp PDF
-    const tempPath = path.join(__dirname, "temp.pdf");
-    fs.writeFileSync(tempPath, req.file.buffer);
+    // Create pdf2pic converter
+    const converter = fromBuffer(req.file.buffer, {
+      density: 150,    // image quality
+      format: "png",
+      width: 1200,
+      height: 1600
+    });
 
-    // Convert PDF to images
-    const converter = fromBuffer(req.file.buffer, { density: 150, format: "png" });
-    const images = await converter(0, true); // all pages
+    // Convert all pages
+    const images = await converter.bulk(-1); // -1 = all pages
 
     let fullText = "";
+
+    // OCR each page
     for (let i = 0; i < images.length; i++) {
       const { data: { text } } = await Tesseract.recognize(Buffer.from(images[i].base64, "base64"), "hin+eng");
       fullText += text + "\n\n";
     }
 
-    // Save to DB
+    // Save extracted text to DB
     await ChapterContentModel.findOneAndUpdate(
       { chapterId },
       { chapterId, content: fullText, fileName: req.file.originalname, size: req.file.size },
       { upsert: true }
     );
-
-    // Delete temp PDF
-    fs.unlinkSync(tempPath);
 
     res.json({ success: true, message: "PDF text extracted using OCR and saved" });
   } catch (err) {
