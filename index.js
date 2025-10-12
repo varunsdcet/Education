@@ -7,6 +7,7 @@ const pdfParse = require("pdf-parse");
 const mongoose = require("mongoose");
 const Tesseract = require("tesseract.js");
 const { fromBuffer } = require("pdf2pic"); // CommonJS version
+const path = require("path");
 const app = express();
 app.use(cors());
 app.use(express.json());
