@@ -68,13 +68,13 @@ function verifyToken(req, res, next) {
 // --- Clean Hindi Text Function ---
 function cleanHindiText(rawText) {
   return rawText
-    .normalize("NFC") // normalize Unicode
-    .replace(/[^\u0900-\u097F0-9a-zA-Z\s.,;!?।\-–]/g, '') // keep Hindi + English + basic punctuation
-    .replace(/\n{2,}/g, '\n') // multiple newlines → single newline
-    .replace(/[ \t]+/g, ' ') // multiple spaces → single space
+    .normalize("NFC")
+    .replace(/[^\u0900-\u097F0-9a-zA-Z\s.,;!?।\-–]/g, '') // remove extra characters
+    .replace(/\n{2,}/g, '\n') // multiple newlines → single
+    .replace(/[ \t]+/g, ' ') // multiple spaces → single
     .split('\n')
     .map(line => line.trim())
-    .filter(line => line.length > 0) // remove empty lines
+    .filter(line => line.length > 0)
     .join('\n');
 }
 
