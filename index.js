@@ -145,6 +145,17 @@ app.delete("/book/delete/:id", verifyToken, async (req, res) => {
   await BookModel.findByIdAndDelete(req.params.id);
   res.json({ success: true });
 });
+function cleanHindiText(rawText) {
+  return rawText
+    .normalize("NFC") // normalize Unicode for combining characters
+    .replace(/[^\u0900-\u097F0-9a-zA-Z\s.,;!?।\-–]/g, '') // keep Hindi + English + basic punctuation
+    .replace(/\n{2,}/g, '\n') // multiple newlines → single newline
+    .replace(/[ \t]+/g, ' ') // multiple spaces → single space
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0) // remove empty lines
+    .join('\n');
+}
 
 // --- CHAPTER CRUD ---
 app.post("/chapter/add", verifyToken, async (req, res) => {
@@ -230,10 +241,20 @@ app.post("/content/multiple", async (req, res) => {
   if (!Array.isArray(chapterIds) || chapterIds.length === 0)
     return res.status(400).json({ success: false, message: "chapterIds array required" });
 
-  const items = await ChapterContentModel.find({ chapterId: { $in: chapterIds } });
-  const combinedText = items.map(i => i.content).join("\n\n");
+  try {
+    const items = await ChapterContentModel.find({ chapterId: { $in: chapterIds } });
+    if (!items || items.length === 0)
+      return res.status(404).json({ success: false, message: "No content found for the given chapterIds" });
 
-  res.json({ success: true, combinedText, items });
+    // Combine & clean all text
+    const combinedRawText = items.map(i => i.content).join("\n\n");
+    const combinedCleanText = cleanHindiText(combinedRawText);
+
+    res.json({ success: true, combinedText: combinedCleanText, items });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // --- PUBLIC APIs (No token required) ---
