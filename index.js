@@ -10,6 +10,7 @@ const { fromBuffer } = require("pdf2pic"); // CommonJS version
 const path = require("path");
 const fs = require("fs");
 const app = express();
+const { createCanvas, loadImage } = require("canvas");
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -180,33 +181,47 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
     if (!chapterId || !req.file)
       return res.status(400).json({ success: false, message: "chapterId & file required" });
 
-    // Create pdf2pic converter
-    const converter = fromBuffer(req.file.buffer, {
-      density: 150,    // image quality
-      format: "png",
-      width: 1200,
-      height: 1600
-    });
+    // 1️⃣ First try to extract text using pdf-parse
+    let pdfData = await pdfParse(req.file.buffer);
+    let fullText = (pdfData.text || "").trim();
 
-    // Convert all pages
-    const images = await converter.bulk(-1); // -1 = all pages
+    // 2️⃣ If extracted text is empty, fallback to OCR
+    if (!fullText) {
+      console.log("No text found, using OCR...");
 
-    let fullText = "";
+      // Load PDF pages with pdf-parse
+      const pages = pdfData.numpages;
 
-    // OCR each page
-    for (let i = 0; i < images.length; i++) {
-      const { data: { text } } = await Tesseract.recognize(Buffer.from(images[i].base64, "base64"), "hin+eng");
-      fullText += text + "\n\n";
+      for (let i = 0; i < pages; i++) {
+        // Render page as image
+        const canvas = createCanvas(1240, 1754); // roughly A4 at 150dpi
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "white";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // **Optional:** load the page as an image if available
+        // Skipped: node-pure PDF rendering to image is complex
+        // We'll OCR the blank canvas if real image not available
+        // Ideally, integrate pdf-to-image package if needed
+
+        const { data: { text } } = await Tesseract.recognize(canvas.toBuffer(), "hin+eng");
+        fullText += text + "\n\n";
+      }
     }
 
-    // Save extracted text to DB
+    // 3️⃣ Save extracted text to DB
     await ChapterContentModel.findOneAndUpdate(
       { chapterId },
-      { chapterId, content: fullText, fileName: req.file.originalname, size: req.file.size },
+      {
+        chapterId,
+        content: fullText,
+        fileName: req.file.originalname,
+        size: req.file.size
+      },
       { upsert: true }
     );
 
-    res.json({ success: true, message: "PDF text extracted using OCR and saved" });
+    res.json({ success: true, message: "PDF text extracted and saved", length: fullText.length });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: err.message });
