@@ -6,11 +6,11 @@ const multer = require("multer");
 const pdfParse = require("pdf-parse");
 const mongoose = require("mongoose");
 const Tesseract = require("tesseract.js");
-const { fromBuffer } = require("pdf2pic");
+const { fromBuffer } = require("pdf2pic"); // CommonJS version
 const path = require("path");
 const fs = require("fs");
-
 const app = express();
+const { createCanvas, loadImage } = require("canvas");
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -65,119 +65,7 @@ function verifyToken(req, res, next) {
   }
 }
 
-// --- Enhanced OCR Junk Filtering Function ---
-function filterOCRJunk(text) {
-  if (!text) return "";
-  
-  return text
-    .split('\n')
-    .filter(line => {
-      const trimmed = line.trim();
-      
-      // Skip empty lines and very short lines
-      if (!trimmed || trimmed.length < 5) return false;
-      
-      // Skip file paths and image references
-      if (/(\.jpg|\.jpeg|\.png|\.indd|\.pdf|Link:|Auther:|Author:|Panoramic|view\d*)/i.test(trimmed)) return false;
-      
-      // Skip date formats and page numbers (like "01-07-2025 2.10.46 PM")
-      if (/\d{1,2}-\d{1,2}-\d{4}.*\d{1,2}\.\d{2}\.\d{2}\s*(AM|PM)/.test(trimmed)) return false;
-      
-      // Skip lines that are mostly numbers and special characters
-      if (/^[\d\s\.\-–:]+$/.test(trimmed)) return false;
-      
-      // Skip lines with excessive numbers (more than 30% numbers)
-      const digitCount = (trimmed.match(/\d/g) || []).length;
-      const totalCharCount = trimmed.length;
-      if (digitCount / totalCharCount > 0.3) return false;
-      
-      // Count Hindi characters to ensure substantial Hindi content
-      const hindiCharCount = (trimmed.match(/[ऀ-ॿ]/g) || []).length;
-      const englishCharCount = (trimmed.match(/[a-zA-Z]/g) || []).length;
-      
-      // Prefer lines with more Hindi content than English
-      return hindiCharCount >= englishCharCount;
-    })
-    .map(line => line.trim())
-    .join('\n');
-}
-
-// --- Dynamic Hindi Text Cleaning Function ---
-function cleanHindiTextEnhanced(rawText) {
-  if (!rawText || typeof rawText !== 'string') return "";
-  
-  return rawText
-    // Step 1: Normalize to NFC form (combines characters properly)
-    .normalize("NFC")
-    
-    // Step 2: Fix common OCR segmentation issues
-    // Remove newlines and spaces between Hindi characters (within words)
-    .replace(/([ऀ-ॿ])\s*\n\s*([ऀ-ॿ])/g, '$1$2')
-    .replace(/([ऀ-ॿ])\s+([ऀ-ॿ])/g, '$1$2')
-    
-    // Step 3: Dynamic duplicate character removal
-    // Remove 2+ consecutive identical Hindi characters but keep legitimate doubles
-    .replace(/([ऀ-ॿ])\1+/g, (match, char) => {
-      // Keep legitimate double consonants in Hindi (like क्क, त्त, etc.)
-      const legitimateDoubles = ['क्क', 'त्त', 'द्ध', 'न्न', 'म्म', 'ल्ल', 'त्त', 'ष्ठ', 'श्च', 'स्स'];
-      if (legitimateDoubles.includes(match)) return match;
-      return char; // Remove unnecessary duplicates
-    })
-    
-    // Step 4: Fix common vowel/consonant combinations
-    // Matra (vowel signs) corrections
-    .replace(/ि([क-ह])/g, '$1ि') // Fix half 'i' matra position
-    .replace(/््+/g, '्') // Remove duplicate halants
-    
-    // Step 5: Fix specific common OCR errors dynamically
-    .replace(/([क-ह])([ा-ौ])\2+/g, '$1$2') // Remove duplicate matras
-    .replace(/([अ-औ])\1+/g, '$1') // Remove duplicate independent vowels
-    
-    // Step 6: Clean up punctuation and spaces
-    .replace(/[॰ॱ]/g, '।') // Normalize different danda characters to standard ।
-    .replace(/[|\/\\_~`@#$%^&*+=\[\]{}<>]/g, '') // Remove unwanted symbols
-    .replace(/["“”]/g, '"') // Normalize quotes
-    .replace(/['‘’]/g, "'") // Normalize apostrophes
-    
-    // Step 7: Advanced line cleaning with context awareness
-    .split('\n')
-    .map(line => {
-      // Remove lines that are just numbers or symbols
-      if (/^[\d\s\.\-–,;:!?]*$/.test(line)) return '';
-      
-      // Fix common word breaks at line endings
-      return line
-        .replace(/\s+([,\.;:!?।])/g, '$1') // Remove space before punctuation
-        .replace(/([क-ह])\s*-\s*([क-ह])/g, '$1$2') // Fix hyphen-separated words
-        .trim();
-    })
-    .filter(line => {
-      // Filter out empty lines and junk lines
-      const trimmed = line.trim();
-      return trimmed.length > 1 && // At least 2 characters
-             !/^[\d\s\W]+$/.test(trimmed) && // Not just numbers/symbols
-             !/^[\.\-–_\s]+$/.test(trimmed); // Not just dots/dashes
-    })
-    .join('\n')
-    
-    // Step 8: Final whitespace normalization
-    .replace(/\n{3,}/g, '\n\n') // Max 2 consecutive newlines
-    .replace(/[ \t]{2,}/g, ' ') // Multiple spaces to single space
-    .replace(/\s+\./g, '.') // Remove spaces before periods
-    .replace(/\s+,/g, ',') // Remove spaces before commas
-    
-    // Step 9: Paragraph detection and formatting
-    .replace(/([.!?।])\s*\n\s*([ऀ-ॿ])/g, '$1\n\n$2') // Add paragraph breaks after sentences
-    .trim();
-}
-
-// --- Clean Hindi Text Function ---
-function cleanHindiText(rawText) {
-  return cleanHindiTextEnhanced(rawText);
-}
-
-// --- CRUD APIs (Class, Subject, Book, Chapter) ---
-// Class
+// --- CLASS CRUD ---
 app.post("/class/add", verifyToken, async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ success: false, message: "Class name required" });
@@ -204,7 +92,7 @@ app.delete("/class/delete/:id", verifyToken, async (req, res) => {
   res.json({ success: true });
 });
 
-// Subject
+// --- SUBJECT CRUD ---
 app.post("/subject/add", verifyToken, async (req, res) => {
   const { name, classId } = req.body;
   if (!name || !classId) return res.status(400).json({ success: false, message: "Name & classId required" });
@@ -231,7 +119,7 @@ app.delete("/subject/delete/:id", verifyToken, async (req, res) => {
   res.json({ success: true });
 });
 
-// Book
+// --- BOOK CRUD ---
 app.post("/book/add", verifyToken, async (req, res) => {
   const { name, subjectId } = req.body;
   if (!name || !subjectId) return res.status(400).json({ success: false, message: "Name & subjectId required" });
@@ -258,7 +146,7 @@ app.delete("/book/delete/:id", verifyToken, async (req, res) => {
   res.json({ success: true });
 });
 
-// Chapter
+// --- CHAPTER CRUD ---
 app.post("/chapter/add", verifyToken, async (req, res) => {
   const { name, bookId } = req.body;
   if (!name || !bookId) return res.status(400).json({ success: false, message: "Name & bookId required" });
@@ -286,109 +174,160 @@ app.delete("/chapter/delete/:id", verifyToken, async (req, res) => {
   res.json({ success: true });
 });
 
-// --- Enhanced PDF Upload & OCR ---
+// --- PDF Upload & Extract Text (Hindi + English) - Pure JS Solution ---
 app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => {
   try {
     const { chapterId } = req.body;
-    if (!chapterId || !req.file) return res.status(400).json({ success: false, message: "chapterId & file required" });
+    if (!chapterId || !req.file)
+      return res.status(400).json({ success: false, message: "chapterId & file required" });
 
-    let fullText = "";
+    console.log("Starting PDF text extraction...");
 
-    // First try direct PDF text extraction
-    try {
-      const pdfData = await pdfParse(req.file.buffer);
-      fullText = (pdfData.text || "").trim();
-    } catch (parseError) {
-      console.log("PDF parse failed, proceeding with OCR...");
-    }
+    // Method 1: Try pdf-parse first (works for text-based PDFs)
+    let pdfData = await pdfParse(req.file.buffer);
+    let fullText = (pdfData.text || "").trim();
 
-    // If no text found or very little text, use OCR
-    if (!fullText || fullText.length < 50) {
-      console.log("Performing page-by-page OCR with enhanced settings...");
+    console.log(`Extracted ${fullText.length} characters using pdf-parse`);
 
-      const options = {
-        density: 300, // Higher DPI for better accuracy
-        saveFilename: "temp",
-        savePath: "./",
-        format: "png", 
-        width: 2480,   // Higher resolution
-        height: 3508,
-        quality: 100
-      };
-
-      const pdfConverter = fromBuffer(req.file.buffer, options);
+    // If we got text, use it (even if it has encoding issues, we'll clean it)
+    if (fullText && fullText.length > 100) {
+      console.log("Using pdf-parse extracted text");
       
-      // Get number of pages
-      const pdfData = await pdfParse(req.file.buffer);
-      const numPages = pdfData.numpages || 1;
-
-      for (let i = 1; i <= numPages; i++) {
-        try {
-          const page = await pdfConverter(i);
-          const imgBuffer = Buffer.from(page.base64, "base64");
-          
-          // Enhanced Tesseract configuration for Hindi
-          const { data: { text } } = await Tesseract.recognize(imgBuffer, "hin+eng", {
-            logger: m => console.log(`Page ${i}:`, m),
-            oem: 1, // Use LSTM engine only
-            psm: 6, // Uniform block of text
-            tessedit_pageseg_mode: 6,
-            tessedit_char_whitelist: 'ऀ-ॿ०-९a-zA-Z\\s.,;!?।\-–\'()'
-          });
-          
-          // Apply junk filtering immediately after OCR
-          const cleanedPageText = filterOCRJunk(text);
-          fullText += cleanedPageText + "\n\n";
-          
-          console.log(`Page ${i} OCR completed. Clean text length: ${cleanedPageText.length}`);
-        } catch (pageError) {
-          console.error(`Error processing page ${i}:`, pageError);
-        }
+      // Advanced cleaning for Hindi text - Unicode level only
+      fullText = fullText
+        // CRITICAL: Remove ALL newlines that break Hindi characters
+        // Remove \n between any Devanagari character and its combining marks
+        .replace(/([\u0900-\u097F])\n+(?=[\u0900-\u097F])/g, '$1')
+        // Remove \n before vowel signs (matras)
+        .replace(/\n+(?=[\u093E-\u094F\u0962-\u0963])/g, '')
+        // Remove \n after consonants when followed by matra
+        .replace(/([\u0915-\u0939\u0958-\u095F])\n+/g, '$1')
+        // Remove \n after halant (virama)
+        .replace(/\u094D\n+/g, '\u094D')
+        // Remove \n before/after anusvara, chandrabindu, visarga
+        .replace(/\n+(?=[\u0901-\u0903])/g, '')
+        .replace(/([\u0901-\u0903])\n+/g, '$1')
+        // Remove corrupted/replacement characters
+        .replace(/��/g, '')
+        .replace(/\uFFFD/g, '')
+        // Remove zero-width and invisible characters
+        .replace(/\u200B|\u200C|\u200D|\uFEFF/g, '')
+        // Normalize Unicode to composed form
+        .normalize("NFC")
+        // FIX DUPLICATE MATRAS - This is a PDF extraction bug
+        .replace(/(\u093E)\1+/g, '$1') // ा
+        .replace(/(\u093F)\1+/g, '$1') // ि
+        .replace(/(\u0940)\1+/g, '$1') // ी
+        .replace(/(\u0941)\1+/g, '$1') // ु
+        .replace(/(\u0942)\1+/g, '$1') // ू
+        .replace(/(\u0943)\1+/g, '$1') // ृ
+        .replace(/(\u0947)\1+/g, '$1') // े
+        .replace(/(\u0948)\1+/g, '$1') // ै
+        .replace(/(\u094B)\1+/g, '$1') // ो
+        .replace(/(\u094C)\1+/g, '$1') // ौ
+        .replace(/(\u0902)\1+/g, '$1') // ं
+        .replace(/(\u0901)\1+/g, '$1') // ँ
+        .replace(/(\u0903)\1+/g, '$1') // ः
+        // Remove standalone single newlines within Devanagari text (preserves paragraph breaks)
+        .replace(/([\u0900-\u097F])\n(?=[\u0900-\u097F])/g, '$1')
+        // Clean excessive whitespace but preserve paragraph breaks
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/[ \t]{2,}/g, ' ')
+        // Remove extra spaces around punctuation
+        .replace(/\s+([।,;!?])/g, '$1')
+        .replace(/([।,;!?])\s+/g, '$1 ')
+        .trim();
+    } else {
+      console.log("Text extraction insufficient, trying OCR fallback");
+      
+      // Method 2: OCR fallback for image-based PDFs
+      // Save to temp file for processing
+      const tempPdfPath = path.join('./temp', `upload_${Date.now()}.pdf`);
+      if (!fs.existsSync('./temp')) {
+        fs.mkdirSync('./temp');
       }
+      fs.writeFileSync(tempPdfPath, req.file.buffer);
+
+      try {
+        // Try OCR on the PDF file directly
+        const { data: { text } } = await Tesseract.recognize(
+          tempPdfPath,
+          "hin+eng",
+          {
+            logger: m => {
+              if (m.status === 'recognizing text') {
+                console.log(`OCR Progress: ${Math.round(m.progress * 100)}%`);
+              }
+            }
+          }
+        );
+        fullText = text;
+        console.log("OCR extraction successful");
+      } catch (ocrErr) {
+        console.log("OCR failed:", ocrErr.message);
+        fullText = pdfData.text || ""; // Use whatever we got from pdf-parse
+      }
+
+      // Clean up temp file
+      try {
+        if (fs.existsSync(tempPdfPath)) {
+          fs.unlinkSync(tempPdfPath);
+        }
+      } catch (e) {}
     }
 
-    // Enhanced Hindi text cleaning
-    fullText = cleanHindiTextEnhanced(fullText);
+    if (!fullText || fullText.length < 10) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Could not extract sufficient text from PDF. Please ensure the PDF contains readable text." 
+      });
+    }
 
+    // Final cleaning pass
+    fullText = fullText
+      .normalize("NFC")
+      .replace(/\u200B|\u200C|\u200D|\uFEFF/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim();
+
+    // Save extracted text to DB
     await ChapterContentModel.findOneAndUpdate(
       { chapterId },
-      { chapterId, content: fullText, fileName: req.file.originalname, size: req.file.size },
+      {
+        chapterId,
+        content: fullText,
+        fileName: req.file.originalname,
+        size: req.file.size
+      },
       { upsert: true }
     );
 
     res.json({ 
       success: true, 
-      message: "PDF OCR completed and saved", 
+      message: "PDF text extracted and saved successfully", 
       length: fullText.length,
-      preview: fullText.substring(0, 200) + "..." 
+      pages: pdfData.numpages
     });
   } catch (err) {
-    console.error("PDF upload error:", err);
+    console.error("PDF extraction error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// --- Get multiple chapters combined ---
+// --- Get multiple chapters content ---
 app.post("/content/multiple", async (req, res) => {
   const { chapterIds } = req.body;
   if (!Array.isArray(chapterIds) || chapterIds.length === 0)
     return res.status(400).json({ success: false, message: "chapterIds array required" });
 
-  try {
-    const items = await ChapterContentModel.find({ chapterId: { $in: chapterIds } });
-    if (!items || items.length === 0) return res.status(404).json({ success: false, message: "No content found" });
+  const items = await ChapterContentModel.find({ chapterId: { $in: chapterIds } });
+  const combinedText = items.map(i => i.content).join("\n\n");
 
-    const combinedRawText = items.map(i => i.content).join("\n\n");
-    const combinedCleanText = cleanHindiText(combinedRawText);
-
-    res.json({ success: true, combinedText: combinedCleanText, items });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: err.message });
-  }
+  res.json({ success: true, combinedText, items });
 });
 
-// --- Public APIs ---
+// --- PUBLIC APIs (No token required) ---
 app.get("/public/class/list", async (req, res) => {
   const classes = await ClassModel.find();
   const result = await Promise.all(classes.map(async cls => {
@@ -437,30 +376,9 @@ app.post("/public/content/multiple", async (req, res) => {
     return res.status(400).json({ success: false, message: "chapterIds array required" });
 
   const items = await ChapterContentModel.find({ chapterId: { $in: chapterIds } });
-  const combinedText = cleanHindiText(items.map(i => i.content).join("\n\n"));
-  res.json({ success: true, combinedText, items });
-});
+  const combinedText = items.map(i => i.content).join("\n\n");
 
-// --- Test PDF Processing Endpoint ---
-app.post("/test-pdf-processing", upload.single("file"), async (req, res) => {
-  try {
-    const pdfData = await pdfParse(req.file.buffer);
-    let extractedText = pdfData.text || "";
-    
-    const result = {
-      directText: {
-        content: extractedText,
-        length: extractedText.length,
-        preview: extractedText.substring(0, 300)
-      },
-      needsOCR: !extractedText || extractedText.length < 50,
-      filteredText: filterOCRJunk(extractedText)
-    };
-    
-    res.json({ success: true, ...result });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  res.json({ success: true, combinedText, items });
 });
 
 // --- Start server ---
