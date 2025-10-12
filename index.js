@@ -175,38 +175,37 @@ app.delete("/chapter/delete/:id", verifyToken, async (req, res) => {
 });
 
 // --- PDF Upload & Extract Text (Hindi + English + LaTeX universal) ---
+// --- PDF Upload & Extract Text (Hindi + English) ---
 app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => {
   try {
     const { chapterId } = req.body;
     if (!chapterId || !req.file)
       return res.status(400).json({ success: false, message: "chapterId & file required" });
 
-    // 1️⃣ Try pdf-parse first
-    const pdfData = await pdfParse(req.file.buffer);
+    // 1️⃣ First try to extract text using pdf-parse
+    let pdfData = await pdfParse(req.file.buffer);
     let fullText = (pdfData.text || "").trim();
 
-    // 2️⃣ If no text, OCR each page
+    // 2️⃣ If extracted text is empty, fallback to OCR
     if (!fullText) {
-      console.log("No text found, using OCR for each page...");
+      console.log("No text found, using OCR...");
 
-      const pdfToPic = fromBuffer(req.file.buffer, {
-        density: 150,        // DPI
-        format: "png",
-        width: 1240,         // roughly A4 width
-        height: 1754,
+      // Using Tesseract directly on PDF buffer (page by page could be implemented if needed)
+      const { data: { text } } = await Tesseract.recognize(req.file.buffer, "hin+eng", {
+        logger: m => console.log(m)
       });
-
-      const pages = pdfData.numpages;
-      for (let i = 1; i <= pages; i++) {
-        const pageImage = await pdfToPic(i, true); // returns {base64, path, name}
-        const imageBuffer = Buffer.from(pageImage.base64, "base64");
-
-        const { data: { text } } = await Tesseract.recognize(imageBuffer, "hin+eng");
-        fullText += text + "\n\n";
-      }
+      fullText = text;
     }
 
-    // 3️⃣ Save extracted text to DB
+    // 3️⃣ Clean the text
+    fullText = fullText
+      .normalize("NFC") // normalize Unicode
+      .replace(/[^\u0900-\u097F0-9a-zA-Z\s.,;!?।]/g, '') // keep Hindi + English + basic punctuation
+      .replace(/\n{2,}/g, '\n') // multiple newlines → 1 newline
+      .replace(/[ \t]+/g, ' ') // multiple spaces → 1 space
+      .split('\n').map(line => line.trim()).join('\n'); // trim each line
+
+    // 4️⃣ Save extracted text to DB
     await ChapterContentModel.findOneAndUpdate(
       { chapterId },
       {
@@ -218,12 +217,13 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
       { upsert: true }
     );
 
-    res.json({ success: true, message: "PDF OCR text extracted and saved", length: fullText.length });
+    res.json({ success: true, message: "PDF text extracted, cleaned, and saved", length: fullText.length });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
 // --- Get multiple chapters content ---
 app.post("/content/multiple", async (req, res) => {
   const { chapterIds } = req.body;
