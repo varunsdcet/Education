@@ -6,11 +6,11 @@ const multer = require("multer");
 const pdfParse = require("pdf-parse");
 const mongoose = require("mongoose");
 const Tesseract = require("tesseract.js");
-const { fromBuffer } = require("pdf2pic"); // CommonJS version
+const { fromBuffer } = require("pdf2pic");
 const path = require("path");
 const fs = require("fs");
+
 const app = express();
-const { createCanvas, loadImage } = require("canvas");
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -65,7 +65,21 @@ function verifyToken(req, res, next) {
   }
 }
 
-// --- CLASS CRUD ---
+// --- Clean Hindi Text Function ---
+function cleanHindiText(rawText) {
+  return rawText
+    .normalize("NFC") // normalize Unicode
+    .replace(/[^\u0900-\u097F0-9a-zA-Z\s.,;!?।\-–]/g, '') // keep Hindi + English + basic punctuation
+    .replace(/\n{2,}/g, '\n') // multiple newlines → single newline
+    .replace(/[ \t]+/g, ' ') // multiple spaces → single space
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0) // remove empty lines
+    .join('\n');
+}
+
+// --- CRUD APIs (Class, Subject, Book, Chapter) ---
+// Class
 app.post("/class/add", verifyToken, async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ success: false, message: "Class name required" });
@@ -92,7 +106,7 @@ app.delete("/class/delete/:id", verifyToken, async (req, res) => {
   res.json({ success: true });
 });
 
-// --- SUBJECT CRUD ---
+// Subject
 app.post("/subject/add", verifyToken, async (req, res) => {
   const { name, classId } = req.body;
   if (!name || !classId) return res.status(400).json({ success: false, message: "Name & classId required" });
@@ -119,7 +133,7 @@ app.delete("/subject/delete/:id", verifyToken, async (req, res) => {
   res.json({ success: true });
 });
 
-// --- BOOK CRUD ---
+// Book
 app.post("/book/add", verifyToken, async (req, res) => {
   const { name, subjectId } = req.body;
   if (!name || !subjectId) return res.status(400).json({ success: false, message: "Name & subjectId required" });
@@ -145,19 +159,8 @@ app.delete("/book/delete/:id", verifyToken, async (req, res) => {
   await BookModel.findByIdAndDelete(req.params.id);
   res.json({ success: true });
 });
-function cleanHindiText(rawText) {
-  return rawText
-    .normalize("NFC") // normalize Unicode for combining characters
-    .replace(/[^\u0900-\u097F0-9a-zA-Z\s.,;!?।\-–]/g, '') // keep Hindi + English + basic punctuation
-    .replace(/\n{2,}/g, '\n') // multiple newlines → single newline
-    .replace(/[ \t]+/g, ' ') // multiple spaces → single space
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line.length > 0) // remove empty lines
-    .join('\n');
-}
 
-// --- CHAPTER CRUD ---
+// Chapter
 app.post("/chapter/add", verifyToken, async (req, res) => {
   const { name, bookId } = req.body;
   if (!name || !bookId) return res.status(400).json({ success: false, message: "Name & bookId required" });
@@ -185,57 +188,51 @@ app.delete("/chapter/delete/:id", verifyToken, async (req, res) => {
   res.json({ success: true });
 });
 
-// --- PDF Upload & Extract Text (Hindi + English + LaTeX universal) ---
-// --- PDF Upload & Extract Text (Hindi + English) ---
+// --- PDF Upload & OCR ---
 app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => {
   try {
     const { chapterId } = req.body;
-    if (!chapterId || !req.file)
-      return res.status(400).json({ success: false, message: "chapterId & file required" });
+    if (!chapterId || !req.file) return res.status(400).json({ success: false, message: "chapterId & file required" });
 
-    // 1️⃣ First try to extract text using pdf-parse
     let pdfData = await pdfParse(req.file.buffer);
     let fullText = (pdfData.text || "").trim();
 
-    // 2️⃣ If extracted text is empty, fallback to OCR
     if (!fullText) {
-      console.log("No text found, using OCR...");
+      console.log("No text found, performing page-by-page OCR...");
 
-      // Using Tesseract directly on PDF buffer (page by page could be implemented if needed)
-      const { data: { text } } = await Tesseract.recognize(req.file.buffer, "hin+eng", {
-        logger: m => console.log(m)
-      });
-      fullText = text;
+      const options = { density: 150, saveFilename: "temp", savePath: "./", format: "png", width: 1240, height: 1754 };
+      const pdfConverter = fromBuffer(req.file.buffer, options);
+      fullText = "";
+
+      for (let i = 1; i <= pdfData.numpages; i++) {
+        const page = await pdfConverter(i);
+        const imgBuffer = Buffer.from(page.base64, "base64");
+        const { data: { text } } = await Tesseract.recognize(imgBuffer, "hin+eng", { logger: m => console.log(`Page ${i}:`, m) });
+        fullText += text + "\n\n";
+      }
     }
 
-    // 3️⃣ Clean the text
     fullText = fullText
-      .normalize("NFC") // normalize Unicode
-      .replace(/[^\u0900-\u097F0-9a-zA-Z\s.,;!?।]/g, '') // keep Hindi + English + basic punctuation
-      .replace(/\n{2,}/g, '\n') // multiple newlines → 1 newline
-      .replace(/[ \t]+/g, ' ') // multiple spaces → 1 space
-      .split('\n').map(line => line.trim()).join('\n'); // trim each line
+      .normalize("NFC")
+      .replace(/[^\u0900-\u097F0-9a-zA-Z\s.,;!?।\-–]/g, '')
+      .replace(/\n{2,}/g, '\n')
+      .replace(/[ \t]+/g, ' ')
+      .split('\n').map(line => line.trim()).join('\n');
 
-    // 4️⃣ Save extracted text to DB
     await ChapterContentModel.findOneAndUpdate(
       { chapterId },
-      {
-        chapterId,
-        content: fullText,
-        fileName: req.file.originalname,
-        size: req.file.size
-      },
+      { chapterId, content: fullText, fileName: req.file.originalname, size: req.file.size },
       { upsert: true }
     );
 
-    res.json({ success: true, message: "PDF text extracted, cleaned, and saved", length: fullText.length });
+    res.json({ success: true, message: "PDF OCR completed and saved", length: fullText.length });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// --- Get multiple chapters content ---
+// --- Get multiple chapters combined ---
 app.post("/content/multiple", async (req, res) => {
   const { chapterIds } = req.body;
   if (!Array.isArray(chapterIds) || chapterIds.length === 0)
@@ -243,10 +240,8 @@ app.post("/content/multiple", async (req, res) => {
 
   try {
     const items = await ChapterContentModel.find({ chapterId: { $in: chapterIds } });
-    if (!items || items.length === 0)
-      return res.status(404).json({ success: false, message: "No content found for the given chapterIds" });
+    if (!items || items.length === 0) return res.status(404).json({ success: false, message: "No content found" });
 
-    // Combine & clean all text
     const combinedRawText = items.map(i => i.content).join("\n\n");
     const combinedCleanText = cleanHindiText(combinedRawText);
 
@@ -257,8 +252,7 @@ app.post("/content/multiple", async (req, res) => {
   }
 });
 
-// --- PUBLIC APIs (No token required) ---
-// Reusing your existing public endpoints
+// --- Public APIs ---
 app.get("/public/class/list", async (req, res) => {
   const classes = await ClassModel.find();
   const result = await Promise.all(classes.map(async cls => {
@@ -307,8 +301,7 @@ app.post("/public/content/multiple", async (req, res) => {
     return res.status(400).json({ success: false, message: "chapterIds array required" });
 
   const items = await ChapterContentModel.find({ chapterId: { $in: chapterIds } });
-  const combinedText = items.map(i => i.content).join("\n\n");
-
+  const combinedText = cleanHindiText(items.map(i => i.content).join("\n\n"));
   res.json({ success: true, combinedText, items });
 });
 
