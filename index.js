@@ -175,19 +175,21 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
     if (!chapterId || !req.file)
       return res.status(400).json({ success: false, message: "chapterId & file required" });
 
-    // Convert PDF pages to images
-    const convert = fromBuffer(req.file.buffer, { density: 150, format: "png" });
-    const pageImages = await convert.bulk(-1); // -1 converts all pages
+    const converter = pdf2pic.fromBuffer(req.file.buffer, {
+      density: 150,
+      format: "png",
+      width: 1200,
+      height: 1600
+    });
 
+    const pageImages = await converter.bulk(-1); // convert all pages
     let extractedText = "";
 
-    // Perform OCR on each page
     for (const page of pageImages) {
-      const { data: { text } } = await Tesseract.recognize(page.path, "hin"); // 'hin' for Hindi
+      const { data: { text } } = await Tesseract.recognize(page.path, "hin");
       extractedText += text + "\n";
     }
 
-    // Save to DB
     await ChapterContentModel.findOneAndUpdate(
       { chapterId },
       { chapterId, content: extractedText.trim(), fileName: req.file.originalname, size: req.file.size },
