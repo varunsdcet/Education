@@ -175,6 +175,7 @@ app.delete("/chapter/delete/:id", verifyToken, async (req, res) => {
 });
 
 // --- PDF Upload & Extract Text (Hindi + English) - Pure JS Solution ---
+// Enhanced PDF Upload & Extract Text (Hindi + English) with Advanced Cleaning
 app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => {
   try {
     const { chapterId } = req.body;
@@ -191,57 +192,128 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
 
     // If we got text, use it (even if it has encoding issues, we'll clean it)
     if (fullText && fullText.length > 100) {
-      console.log("Using pdf-parse extracted text");
+      console.log("Using pdf-parse extracted text with enhanced cleaning");
       
-      // Advanced cleaning for Hindi text - Unicode level only
+      // ============================================
+      // ENHANCED HINDI TEXT CLEANING ALGORITHM
+      // ============================================
+      
       fullText = fullText
-        // CRITICAL: Remove ALL newlines that break Hindi characters
-        // Remove \n between any Devanagari character and its combining marks
-        .replace(/([\u0900-\u097F])\n+(?=[\u0900-\u097F])/g, '$1')
-        // Remove \n before vowel signs (matras)
-        .replace(/\n+(?=[\u093E-\u094F\u0962-\u0963])/g, '')
-        // Remove \n after consonants when followed by matra
-        .replace(/([\u0915-\u0939\u0958-\u095F])\n+/g, '$1')
-        // Remove \n after halant (virama)
-        .replace(/\u094D\n+/g, '\u094D')
-        // Remove \n before/after anusvara, chandrabindu, visarga
-        .replace(/\n+(?=[\u0901-\u0903])/g, '')
-        .replace(/([\u0901-\u0903])\n+/g, '$1')
-        // Remove corrupted/replacement characters
+        // Step 1: Fix common PDF encoding errors
         .replace(/��/g, '')
         .replace(/\uFFFD/g, '')
-        // Remove zero-width and invisible characters
-        .replace(/\u200B|\u200C|\u200D|\uFEFF/g, '')
-        // Normalize Unicode to composed form
+        .replace(/\u0000/g, '')
+        
+        // Step 2: Remove zero-width and invisible characters
+        .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
+        
+        // Step 3: Normalize Unicode to composed form (critical for Hindi)
         .normalize("NFC")
-        // FIX DUPLICATE MATRAS - This is a PDF extraction bug
-        .replace(/(\u093E)\1+/g, '$1') // ा
-        .replace(/(\u093F)\1+/g, '$1') // ि
-        .replace(/(\u0940)\1+/g, '$1') // ी
-        .replace(/(\u0941)\1+/g, '$1') // ु
-        .replace(/(\u0942)\1+/g, '$1') // ू
-        .replace(/(\u0943)\1+/g, '$1') // ृ
-        .replace(/(\u0947)\1+/g, '$1') // े
-        .replace(/(\u0948)\1+/g, '$1') // ै
-        .replace(/(\u094B)\1+/g, '$1') // ो
-        .replace(/(\u094C)\1+/g, '$1') // ौ
-        .replace(/(\u0902)\1+/g, '$1') // ं
-        .replace(/(\u0901)\1+/g, '$1') // ँ
-        .replace(/(\u0903)\1+/g, '$1') // ः
-        // Remove standalone single newlines within Devanagari text (preserves paragraph breaks)
+        
+        // Step 4: Fix newlines breaking Hindi characters
+        // Remove \n between Devanagari characters
+        .replace(/([\u0900-\u097F])\n+(?=[\u0900-\u097F])/g, '$1')
+        
+        // Remove \n before vowel signs (matras)
+        .replace(/\n+(?=[\u093E-\u094F\u0962-\u0963])/g, '')
+        
+        // Remove \n after consonants when followed by matra
+        .replace(/([\u0915-\u0939\u0958-\u095F])\n+(?=[\u093E-\u094F])/g, '$1')
+        
+        // Remove \n after halant/virama (्)
+        .replace(/\u094D\n+/g, '\u094D')
+        
+        // Remove \n before/after anusvara (ं), chandrabindu (ँ), visarga (ः)
+        .replace(/\n+(?=[\u0901-\u0903])/g, '')
+        .replace(/([\u0901-\u0903])\n+/g, '$1')
+        
+        // Step 5: Fix duplicate matras (common PDF extraction bug)
+        .replace(/(\u093E){2,}/g, '$1')  // ा
+        .replace(/(\u093F){2,}/g, '$1')  // ि
+        .replace(/(\u0940){2,}/g, '$1')  // ी
+        .replace(/(\u0941){2,}/g, '$1')  // ु
+        .replace(/(\u0942){2,}/g, '$1')  // ू
+        .replace(/(\u0943){2,}/g, '$1')  // ृ
+        .replace(/(\u0944){2,}/g, '$1')  // ॄ
+        .replace(/(\u0945){2,}/g, '$1')  // ॅ
+        .replace(/(\u0946){2,}/g, '$1')  // ॆ
+        .replace(/(\u0947){2,}/g, '$1')  // े
+        .replace(/(\u0948){2,}/g, '$1')  // ै
+        .replace(/(\u0949){2,}/g, '$1')  // ॉ
+        .replace(/(\u094A){2,}/g, '$1')  // ॊ
+        .replace(/(\u094B){2,}/g, '$1')  // ो
+        .replace(/(\u094C){2,}/g, '$1')  // ौ
+        
+        // Step 6: Fix duplicate diacritical marks
+        .replace(/(\u0902){2,}/g, '$1')  // ं anusvara
+        .replace(/(\u0901){2,}/g, '$1')  // ँ chandrabindu
+        .replace(/(\u0903){2,}/g, '$1')  // ः visarga
+        
+        // Step 7: Remove standalone single newlines within Devanagari text
         .replace(/([\u0900-\u097F])\n(?=[\u0900-\u097F])/g, '$1')
-        // Clean excessive whitespace but preserve paragraph breaks
-        .replace(/\n{3,}/g, '\n\n')
-        .replace(/[ \t]{2,}/g, ' ')
-        // Remove extra spaces around punctuation
-        .replace(/\s+([।,;!?])/g, '$1')
-        .replace(/([।,;!?])\s+/g, '$1 ')
+        
+        // Step 8: Fix misplaced matras (matra appearing before consonant)
+        .replace(/([\u093E-\u094C])([\u0915-\u0939])/g, '$2$1')
+        
+        // Step 9: Remove extra spaces around Devanagari punctuation
+        .replace(/\s+(।)/g, '$1')
+        .replace(/(।)\s+/g, '$1 ')
+        
+        // Step 10: Fix common word breaks
+        .replace(/ो\s+सा/g, 'ोसा')
+        .replace(/ि\s+सा/g, 'िसा')
+        .replace(/े\s+सा/g, 'ेसा')
+        
+        // Step 11: Clean excessive whitespace but preserve paragraph breaks
+        .replace(/\n{4,}/g, '\n\n\n')  // Max 3 newlines
+        .replace(/\n{3}/g, '\n\n')     // Convert triple to double
+        .replace(/[ \t]{2,}/g, ' ')    // Multiple spaces to single
+        .replace(/[ \t]+\n/g, '\n')    // Trailing spaces before newline
+        .replace(/\n[ \t]+/g, '\n')    // Leading spaces after newline
+        
+        // Step 12: Fix common English punctuation issues
+        .replace(/\s+([.,;:!?])/g, '$1')
+        .replace(/([.,;:!?])\s*\n/g, '$1\n')
+        
+        // Step 13: Fix common Hindi number issues (Devanagari numerals)
+        .replace(/([\u0966-\u096F])\n+/g, '$1')
+        
+        // Step 14: Remove orphaned combining marks at start of line
+        .replace(/\n[\u093E-\u094F\u0901-\u0903]/g, '\n')
+        
+        // Step 15: Fix common OCR errors for Hindi
+        .replace(/0/g, (match, offset, string) => {
+          // Check if surrounded by Devanagari - might be ० (zero)
+          const before = string[offset - 1];
+          const after = string[offset + 1];
+          if (before && after && 
+              before.match(/[\u0900-\u097F]/) && 
+              after.match(/[\u0900-\u097F]/)) {
+            return '\u0966'; // Devanagari zero
+          }
+          return match;
+        })
+        
+        // Step 16: Final normalization
+        .normalize("NFC")
+        
+        // Step 17: Trim each line
+        .split('\n')
+        .map(line => line.trim())
+        .join('\n')
+        
+        // Step 18: Remove empty lines (but keep paragraph breaks)
+        .replace(/\n\n+/g, '\n\n')
+        
+        // Final trim
         .trim();
+
+      console.log(`After cleaning: ${fullText.length} characters`);
+      
     } else {
       console.log("Text extraction insufficient, trying OCR fallback");
       
       // Method 2: OCR fallback for image-based PDFs
-      // Save to temp file for processing
       const tempPdfPath = path.join('./temp', `upload_${Date.now()}.pdf`);
       if (!fs.existsSync('./temp')) {
         fs.mkdirSync('./temp');
@@ -249,7 +321,7 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
       fs.writeFileSync(tempPdfPath, req.file.buffer);
 
       try {
-        // Try OCR on the PDF file directly
+        // Try OCR with Hindi + English
         const { data: { text } } = await Tesseract.recognize(
           tempPdfPath,
           "hin+eng",
@@ -261,11 +333,24 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
             }
           }
         );
+        
         fullText = text;
         console.log("OCR extraction successful");
+        
+        // Apply same cleaning to OCR text
+        fullText = fullText
+          .normalize("NFC")
+          .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
+          .replace(/(\u093E){2,}/g, '$1')
+          .replace(/(\u0940){2,}/g, '$1')
+          .replace(/(\u0947){2,}/g, '$1')
+          .replace(/\n{3,}/g, '\n\n')
+          .replace(/[ \t]{2,}/g, ' ')
+          .trim();
+          
       } catch (ocrErr) {
         console.log("OCR failed:", ocrErr.message);
-        fullText = pdfData.text || ""; // Use whatever we got from pdf-parse
+        fullText = pdfData.text || "";
       }
 
       // Clean up temp file
@@ -273,9 +358,12 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
         if (fs.existsSync(tempPdfPath)) {
           fs.unlinkSync(tempPdfPath);
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error("Temp file cleanup error:", e.message);
+      }
     }
 
+    // Validation
     if (!fullText || fullText.length < 10) {
       return res.status(400).json({ 
         success: false, 
@@ -283,13 +371,12 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
       });
     }
 
-    // Final cleaning pass
-    fullText = fullText
-      .normalize("NFC")
-      .replace(/\u200B|\u200C|\u200D|\uFEFF/g, '')
-      .replace(/\n{3,}/g, '\n\n')
-      .replace(/[ \t]{2,}/g, ' ')
-      .trim();
+    // Quality metrics
+    const hindiCharCount = (fullText.match(/[\u0900-\u097F]/g) || []).length;
+    const englishCharCount = (fullText.match(/[a-zA-Z]/g) || []).length;
+    const totalChars = fullText.length;
+    
+    console.log(`Quality metrics: Total=${totalChars}, Hindi=${hindiCharCount}, English=${englishCharCount}`);
 
     // Save extracted text to DB
     await ChapterContentModel.findOneAndUpdate(
@@ -306,9 +393,15 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
     res.json({ 
       success: true, 
       message: "PDF text extracted and saved successfully", 
-      length: fullText.length,
-      pages: pdfData.numpages
+      stats: {
+        totalLength: fullText.length,
+        pages: pdfData.numpages,
+        hindiChars: hindiCharCount,
+        englishChars: englishCharCount,
+        hindiPercentage: Math.round((hindiCharCount / totalChars) * 100)
+      }
     });
+    
   } catch (err) {
     console.error("PDF extraction error:", err);
     res.status(500).json({ success: false, message: err.message });
