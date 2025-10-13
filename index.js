@@ -175,23 +175,26 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
     if (!chapterId || !req.file)
       return res.status(400).json({ success: false, message: "chapterId & file required" });
 
+    // Convert PDF pages to images
+    const convert = fromBuffer(req.file.buffer, { density: 150, format: "png" });
+    const pageImages = await convert.bulk(-1); // -1 converts all pages
+
     let extractedText = "";
 
-    await new Promise((resolve, reject) => {
-      new PdfReader().parseBuffer(req.file.buffer, (err, item) => {
-        if (err) reject(err);
-        else if (!item) resolve();
-        else if (item.text) extractedText += item.text + " ";
-      });
-    });
+    // Perform OCR on each page
+    for (const page of pageImages) {
+      const { data: { text } } = await Tesseract.recognize(page.path, "hin"); // 'hin' for Hindi
+      extractedText += text + "\n";
+    }
 
+    // Save to DB
     await ChapterContentModel.findOneAndUpdate(
       { chapterId },
       { chapterId, content: extractedText.trim(), fileName: req.file.originalname, size: req.file.size },
       { upsert: true }
     );
 
-    res.json({ success: true, message: "Hindi PDF text extracted and saved", content: extractedText.trim() });
+    res.json({ success: true, message: "Hindi PDF OCR extracted and saved", content: extractedText.trim() });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
