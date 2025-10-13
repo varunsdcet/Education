@@ -23,6 +23,7 @@
     "pdf-img-convert": "^2.0.0",
     "pdf-parse": "^1.1.1",
     "pdf2pic": "^3.2.0",
+    "pdfreader": "^3.0.7",
     "tesseract.js": "^6.0.1"
   },
   "devDependencies": {

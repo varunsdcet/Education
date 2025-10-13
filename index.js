@@ -5,7 +5,7 @@ const jwt = require("jsonwebtoken");
 const multer = require("multer");
 const pdfParse = require("pdf-parse");
 const mongoose = require("mongoose");
-
+const PdfReader = require("pdfreader").PdfReader;
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -169,27 +169,53 @@ app.delete("/chapter/delete/:id", verifyToken, async (req, res) => {
   await ChapterContentModel.deleteMany({ chapterId: req.params.id }).catch(() => {});
   res.json({ success: true });
 });
-
-// --- PDF Upload & Extract Text ---
 app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => {
   try {
     const { chapterId } = req.body;
-    if (!chapterId || !req.file) return res.status(400).json({ success: false, message: "chapterId & file required" });
+    if (!chapterId || !req.file)
+      return res.status(400).json({ success: false, message: "chapterId & file required" });
 
-    const data = await pdfParse(req.file.buffer);
-    const extractedText = data.text || "";
+    let extractedText = "";
+
+    await new Promise((resolve, reject) => {
+      new PdfReader().parseBuffer(req.file.buffer, (err, item) => {
+        if (err) reject(err);
+        else if (!item) resolve();
+        else if (item.text) extractedText += item.text + " ";
+      });
+    });
 
     await ChapterContentModel.findOneAndUpdate(
       { chapterId },
-      { chapterId, content: extractedText, fileName: req.file.originalname, size: req.file.size },
+      { chapterId, content: extractedText.trim(), fileName: req.file.originalname, size: req.file.size },
       { upsert: true }
     );
 
-    res.json({ success: true, message: "PDF text extracted and saved" });
+    res.json({ success: true, message: "Hindi PDF text extracted and saved", content: extractedText.trim() });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+// --- PDF Upload & Extract Text ---
+// app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => {
+//   try {
+//     const { chapterId } = req.body;
+//     if (!chapterId || !req.file) return res.status(400).json({ success: false, message: "chapterId & file required" });
+
+//     const data = await pdfParse(req.file.buffer);
+//     const extractedText = data.text || "";
+
+//     await ChapterContentModel.findOneAndUpdate(
+//       { chapterId },
+//       { chapterId, content: extractedText, fileName: req.file.originalname, size: req.file.size },
+//       { upsert: true }
+//     );
+
+//     res.json({ success: true, message: "PDF text extracted and saved" });
+//   } catch (err) {
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// });
 app.post("/update/chapter-content", verifyToken, async (req, res) => {
   try {
     const { chapterId, content } = req.body;
