@@ -3,17 +3,14 @@ const express = require("express");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const multer = require("multer");
+const pdfParse = require("pdf-parse");
 const mongoose = require("mongoose");
-const { PDFDocument } = require('pdf-lib');
-const sharp = require('sharp');
-const Tesseract = require('tesseract.js');
-const fs = require('fs').promises;
-const path = require('path');
-const { exec } = require('child_process');
-const util = require('util');
-const execPromise = util.promisify(exec);
-
+const Tesseract = require("tesseract.js");
+const { fromBuffer } = require("pdf2pic"); // CommonJS version
+const path = require("path");
+const fs = require("fs");
 const app = express();
+const { createCanvas, loadImage } = require("canvas");
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -36,8 +33,7 @@ const chapterContentSchema = new mongoose.Schema({
   chapterId: String,
   content: String,
   fileName: String,
-  size: Number,
-  pages: Number
+  size: Number
 }, { timestamps: true });
 
 const ClassModel = mongoose.model("Class", classSchema);
@@ -178,170 +174,143 @@ app.delete("/chapter/delete/:id", verifyToken, async (req, res) => {
   res.json({ success: true });
 });
 
-// --- Helper function to convert PDF to images using poppler (most reliable) ---
-async function convertPdfToImages(pdfBuffer, chapterId) {
-  const tempDir = path.join(__dirname, 'temp', chapterId);
-  await fs.mkdir(tempDir, { recursive: true });
-  
-  const pdfPath = path.join(tempDir, 'input.pdf');
-  await fs.writeFile(pdfPath, pdfBuffer);
-  
-  try {
-    // Try using poppler's pdftoppm (if installed)
-    await execPromise(`pdftoppm -png -r 300 "${pdfPath}" "${path.join(tempDir, 'page')}"`);
-    const files = await fs.readdir(tempDir);
-    const imageFiles = files.filter(f => f.endsWith('.png')).sort();
-    return { tempDir, imageFiles };
-  } catch (err) {
-    // If pdftoppm not found, use pdf-lib method
-    console.log('pdftoppm not found, using alternative method...');
-    return await convertPdfToImagesAlternative(pdfBuffer, tempDir);
-  }
-}
-
-// Alternative method using pdf-lib (works but needs ghostscript or similar)
-async function convertPdfToImagesAlternative(pdfBuffer, tempDir) {
-  const pdfDoc = await PDFDocument.load(pdfBuffer);
-  const pageCount = pdfDoc.getPageCount();
-  const imageFiles = [];
-  
-  for (let i = 0; i < pageCount; i++) {
-    const newPdf = await PDFDocument.create();
-    const [copiedPage] = await newPdf.copyPages(pdfDoc, [i]);
-    newPdf.addPage(copiedPage);
-    
-    const singlePageBytes = await newPdf.save();
-    const pagePath = path.join(tempDir, `page-${i + 1}.pdf`);
-    await fs.writeFile(pagePath, singlePageBytes);
-    
-    // Convert single page PDF to image using ghostscript
-    const imagePath = path.join(tempDir, `page-${i + 1}.png`);
-    try {
-      await execPromise(`gs -dSAFER -dBATCH -dNOPAUSE -sDEVICE=png16m -r300 -sOutputFile="${imagePath}" "${pagePath}"`);
-      imageFiles.push(`page-${i + 1}.png`);
-    } catch (err) {
-      console.error(`Failed to convert page ${i + 1}:`, err.message);
-    }
-  }
-  
-  return { tempDir, imageFiles };
-}
-
-// --- SIMPLEST METHOD: Using Tesseract directly on PDF ---
+// --- PDF Upload & Extract Text (Hindi + English) - Pure JS Solution ---
 app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => {
-  let tempDir = null;
-  
   try {
     const { chapterId } = req.body;
     if (!chapterId || !req.file)
       return res.status(400).json({ success: false, message: "chapterId & file required" });
 
-    console.log(`Processing PDF: ${req.file.originalname} (${req.file.size} bytes)`);
+    console.log("Starting PDF text extraction...");
 
-    // Create temp directory
-    tempDir = path.join(__dirname, 'temp', chapterId);
-    await fs.mkdir(tempDir, { recursive: true });
-    
-    const pdfPath = path.join(tempDir, 'input.pdf');
-    await fs.writeFile(pdfPath, req.file.buffer);
+    // Method 1: Try pdf-parse first (works for text-based PDFs)
+    let pdfData = await pdfParse(req.file.buffer);
+    let fullText = (pdfData.text || "").trim();
 
-    let extractedText = "";
-    let pageCount = 0;
+    console.log(`Extracted ${fullText.length} characters using pdf-parse`);
 
-    // Method 1: Try Tesseract directly on PDF (fastest if supported)
-    try {
-      console.log("Attempting direct PDF OCR...");
-      const { data: { text, pdf } } = await Tesseract.recognize(pdfPath, 'hin', {
-        logger: info => {
-          if (info.status === 'recognizing text') {
-            console.log(`OCR Progress: ${Math.round(info.progress * 100)}%`);
-          }
-        }
-      });
-      extractedText = text;
-      pageCount = 1; // Tesseract processes PDF as single document
-    } catch (err) {
-      console.log("Direct PDF OCR failed, converting to images...");
+    // If we got text, use it (even if it has encoding issues, we'll clean it)
+    if (fullText && fullText.length > 100) {
+      console.log("Using pdf-parse extracted text");
       
-      // Method 2: Convert PDF pages to images
-      const { tempDir: dir, imageFiles } = await convertPdfToImages(req.file.buffer, chapterId);
-      tempDir = dir;
-      pageCount = imageFiles.length;
+      // Advanced cleaning for Hindi text - Unicode level only
+      fullText = fullText
+        // CRITICAL: Remove ALL newlines that break Hindi characters
+        // Remove \n between any Devanagari character and its combining marks
+        .replace(/([\u0900-\u097F])\n+(?=[\u0900-\u097F])/g, '$1')
+        // Remove \n before vowel signs (matras)
+        .replace(/\n+(?=[\u093E-\u094F\u0962-\u0963])/g, '')
+        // Remove \n after consonants when followed by matra
+        .replace(/([\u0915-\u0939\u0958-\u095F])\n+/g, '$1')
+        // Remove \n after halant (virama)
+        .replace(/\u094D\n+/g, '\u094D')
+        // Remove \n before/after anusvara, chandrabindu, visarga
+        .replace(/\n+(?=[\u0901-\u0903])/g, '')
+        .replace(/([\u0901-\u0903])\n+/g, '$1')
+        // Remove corrupted/replacement characters
+        .replace(/��/g, '')
+        .replace(/\uFFFD/g, '')
+        // Remove zero-width and invisible characters
+        .replace(/\u200B|\u200C|\u200D|\uFEFF/g, '')
+        // Normalize Unicode to composed form
+        .normalize("NFC")
+        // FIX DUPLICATE MATRAS - This is a PDF extraction bug
+        .replace(/(\u093E)\1+/g, '$1') // ा
+        .replace(/(\u093F)\1+/g, '$1') // ि
+        .replace(/(\u0940)\1+/g, '$1') // ी
+        .replace(/(\u0941)\1+/g, '$1') // ु
+        .replace(/(\u0942)\1+/g, '$1') // ू
+        .replace(/(\u0943)\1+/g, '$1') // ृ
+        .replace(/(\u0947)\1+/g, '$1') // े
+        .replace(/(\u0948)\1+/g, '$1') // ै
+        .replace(/(\u094B)\1+/g, '$1') // ो
+        .replace(/(\u094C)\1+/g, '$1') // ौ
+        .replace(/(\u0902)\1+/g, '$1') // ं
+        .replace(/(\u0901)\1+/g, '$1') // ँ
+        .replace(/(\u0903)\1+/g, '$1') // ः
+        // Remove standalone single newlines within Devanagari text (preserves paragraph breaks)
+        .replace(/([\u0900-\u097F])\n(?=[\u0900-\u097F])/g, '$1')
+        // Clean excessive whitespace but preserve paragraph breaks
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/[ \t]{2,}/g, ' ')
+        // Remove extra spaces around punctuation
+        .replace(/\s+([।,;!?])/g, '$1')
+        .replace(/([।,;!?])\s+/g, '$1 ')
+        .trim();
+    } else {
+      console.log("Text extraction insufficient, trying OCR fallback");
+      
+      // Method 2: OCR fallback for image-based PDFs
+      // Save to temp file for processing
+      const tempPdfPath = path.join('./temp', `upload_${Date.now()}.pdf`);
+      if (!fs.existsSync('./temp')) {
+        fs.mkdirSync('./temp');
+      }
+      fs.writeFileSync(tempPdfPath, req.file.buffer);
 
-      for (let i = 0; i < imageFiles.length; i++) {
-        const imagePath = path.join(tempDir, imageFiles[i]);
-        console.log(`OCR processing page ${i + 1}/${imageFiles.length}...`);
-        
-        const { data: { text } } = await Tesseract.recognize(imagePath, 'hin', {
-          logger: info => {
-            if (info.status === 'recognizing text') {
-              console.log(`Page ${i + 1} OCR: ${Math.round(info.progress * 100)}%`);
+      try {
+        // Try OCR on the PDF file directly
+        const { data: { text } } = await Tesseract.recognize(
+          tempPdfPath,
+          "hin+eng",
+          {
+            logger: m => {
+              if (m.status === 'recognizing text') {
+                console.log(`OCR Progress: ${Math.round(m.progress * 100)}%`);
+              }
             }
           }
-        });
-        
-        extractedText += `\n--- पृष्ठ ${i + 1} ---\n${text}\n`;
+        );
+        fullText = text;
+        console.log("OCR extraction successful");
+      } catch (ocrErr) {
+        console.log("OCR failed:", ocrErr.message);
+        fullText = pdfData.text || ""; // Use whatever we got from pdf-parse
       }
+
+      // Clean up temp file
+      try {
+        if (fs.existsSync(tempPdfPath)) {
+          fs.unlinkSync(tempPdfPath);
+        }
+      } catch (e) {}
     }
 
-    // Save extracted text to MongoDB
+    if (!fullText || fullText.length < 10) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Could not extract sufficient text from PDF. Please ensure the PDF contains readable text." 
+      });
+    }
+
+    // Final cleaning pass
+    fullText = fullText
+      .normalize("NFC")
+      .replace(/\u200B|\u200C|\u200D|\uFEFF/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim();
+
+    // Save extracted text to DB
     await ChapterContentModel.findOneAndUpdate(
       { chapterId },
-      { 
-        chapterId, 
-        content: extractedText.trim(), 
-        fileName: req.file.originalname, 
-        size: req.file.size,
-        pages: pageCount
+      {
+        chapterId,
+        content: fullText,
+        fileName: req.file.originalname,
+        size: req.file.size
       },
       { upsert: true }
     );
 
-    // Cleanup temp files
-    if (tempDir) {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
-    }
-
-    console.log("PDF processing completed successfully!");
-
     res.json({ 
       success: true, 
-      message: "Hindi PDF OCR extracted and saved", 
-      content: extractedText.trim(),
-      pages: pageCount
+      message: "PDF text extracted and saved successfully", 
+      length: fullText.length,
+      pages: pdfData.numpages
     });
-
   } catch (err) {
-    console.error("PDF OCR error:", err);
-    
-    // Cleanup on error
-    if (tempDir) {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
-    }
-    
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// --- Update Chapter Content ---
-app.post("/update/chapter-content", verifyToken, async (req, res) => {
-  try {
-    const { chapterId, content } = req.body;
-
-    if (!chapterId || !content) {
-      return res.status(400).json({ success: false, message: "chapterId and content are required" });
-    }
-
-    const existingRecord = await ChapterContentModel.findOne({ chapterId });
-    if (!existingRecord) {
-      return res.status(404).json({ success: false, message: "No record found for this chapterId" });
-    }
-
-    existingRecord.content = content;
-    await existingRecord.save();
-
-    res.json({ success: true, message: "Content updated successfully" });
-  } catch (err) {
+    console.error("PDF extraction error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -359,8 +328,6 @@ app.post("/content/multiple", async (req, res) => {
 });
 
 // --- PUBLIC APIs (No token required) ---
-
-// Public Class List
 app.get("/public/class/list", async (req, res) => {
   const classes = await ClassModel.find();
   const result = await Promise.all(classes.map(async cls => {
@@ -370,7 +337,6 @@ app.get("/public/class/list", async (req, res) => {
   res.json({ success: true, items: result });
 });
 
-// Public Subject List
 app.get("/public/subject/list/:classId", async (req, res) => {
   const subjects = await SubjectModel.find({ classId: req.params.classId });
   const result = await Promise.all(subjects.map(async subj => {
@@ -380,7 +346,6 @@ app.get("/public/subject/list/:classId", async (req, res) => {
   res.json({ success: true, items: result });
 });
 
-// Public Book List
 app.get("/public/book/list/:subjectId", async (req, res) => {
   const books = await BookModel.find({ subjectId: req.params.subjectId });
   const result = await Promise.all(books.map(async book => {
@@ -390,7 +355,6 @@ app.get("/public/book/list/:subjectId", async (req, res) => {
   res.json({ success: true, items: result });
 });
 
-// Public Chapter List
 app.get("/public/chapter/list/:bookId", async (req, res) => {
   const chapters = await ChapterModel.find({ bookId: req.params.bookId });
   const result = await Promise.all(chapters.map(async chap => {
@@ -400,14 +364,12 @@ app.get("/public/chapter/list/:bookId", async (req, res) => {
   res.json({ success: true, items: result });
 });
 
-// Public PDF Content
 app.get("/public/content/:chapterId", async (req, res) => {
   const content = await ChapterContentModel.findOne({ chapterId: req.params.chapterId });
   if (!content) return res.status(404).json({ success: false, message: "No content found" });
   res.json({ success: true, content });
 });
 
-// Public Multiple Contents
 app.post("/public/content/multiple", async (req, res) => {
   const { chapterIds } = req.body;
   if (!Array.isArray(chapterIds) || chapterIds.length === 0)
