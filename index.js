@@ -213,7 +213,15 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
     if (extractedText.length > 50) {
       // We have text - repair the corrupted Hindi
       console.log("🔧 Repairing corrupted Hindi text...");
-      finalText = repairHindiTextForYourPDF(extractedText);
+     try {
+  finalText = repairHindiTextForYourPDF(extractedText);
+  extractionMethod = "hindi_repaired";
+} catch (repairError) {
+  console.error("Text repair failed, using original text:", repairError);
+  finalText = cleanHindiText(extractedText);
+  extractionMethod = "direct_clean_fallback";
+  warning = "Text repair failed, using original text";
+}
       extractionMethod = "hindi_repaired";
       
       // Check if repair was successful
@@ -303,6 +311,9 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
 // ============================================
 // SPECIALIZED HINDI TEXT REPAIR FOR YOUR PDF
 // ============================================
+// ============================================
+// SPECIALIZED HINDI TEXT REPAIR FOR YOUR PDF
+// ============================================
 function repairHindiTextForYourPDF(text) {
   if (!text) return "";
   
@@ -311,6 +322,7 @@ function repairHindiTextForYourPDF(text) {
   let repaired = text;
 
   // COMPREHENSIVE CORRUPTION MAPPING FOR YOUR SPECIFIC PDF
+  // Using only safe characters in the corruption map
   const corruptionMap = {
     // Header and title corruptions
     'fganh&6': 'हिंदी',
@@ -318,25 +330,21 @@ function repairHindiTextForYourPDF(text) {
     // Name corruptions
     'tkno': 'जादव',
     'eksykbZ': 'पायेंगे',
-    'tkno eksykbZ': 'जादव पायेंगे',
     
     // English word corruptions
-    '^QkWjsLV': 'फॉरेस्ट',
+    '\\^QkWjsLV': 'फॉरेस्ट', // Escape the ^ character
     'iQkWjsLV': 'फॉरेस्ट',
     'eSu': 'मैन',
     'bafM': 'इंडिया',
-    'iQkWjsLV eSu': 'फॉरेस्ट मैन',
-    '^eSu': 'मैन',
+    '\\^eSu': 'मैन', // Escape the ^ character
     
-    // Common Hindi word corruptions
+    // Common Hindi word corruptions (safe ones only)
     'osQ': 'के',
-    'izfln~': 'प्रसिद्ध',
     'txg': 'जगह',
     'gSa': 'हैं',
     'vkSj': 'और',
     'gS': 'है',
     'fd': 'कि',
-    ';g': 'यह',
     'rks': 'तो',
     'dks': 'को',
     'dh': 'की',
@@ -348,23 +356,15 @@ function repairHindiTextForYourPDF(text) {
     'clk': 'बसा',
     'gqvk': 'हुआ',
     'fy,': 'लिए',
-    ';gk¡': 'यहाँ',
-    'tgk¡': 'जहाँ',
     'fofHkUu': 'विभिन्न',
     'ns[kus': 'देखने',
     'feyrs': 'मिलते',
-    'ns\'k&fons\'k': 'देश-विदेश',
     'i;ZVd': 'पर्यटक',
-    '?kweus': 'घूमने',
     'vkrs': 'आते',
-    'eqX/': 'मुग्ध',
     'dj': 'कर',
     'nsrh': 'देती',
-    'isM+&ikS/s': 'पेड़-पौधे',
-    'gok&ikuh': 'हवा-पानी',
     'gekjh': 'हमारी',
     'ij': 'पर',
-    'fuHkZj': 'निर्भर',
     'lHkh': 'सभी',
     'ilan': 'पसंद',
     'djrs': 'करते',
@@ -373,42 +373,40 @@ function repairHindiTextForYourPDF(text) {
     'oqQN': 'कुछ',
     'yksx': 'लोग',
     'tks': 'जो',
-    'ns[kHkky': 'देखभाल',
     'dke': 'काम',
-    'vHkko': 'अभाव',
-    'i`Foh': 'पृथ्वी',
-    'thou': 'जीवन',
-    'laHko': 'संभव',
     'ugha': 'नहीं',
     'lR;': 'सत्य',
     'vle': 'असम',
-    'ftys': 'जिले',
     'xk¡o': 'गाँव',
     'jgus': 'रहने',
     'okys': 'वाले',
     'eglwl': 'महसूस',
     'fd;k': 'किया',
-    'fn\'kk': 'दिशा',
     'vuwBk': 'अनूठा',
-    'ljkguh;': 'सराहनीय',
     'dne': 'कदम',
-    'mBk;k': 'उठाया',
-    
-    // Remove corruption markers
-    '^': '',
-    '~': '',
-    '&': '',
-    '`': ''
+    'mBk;k': 'उठाया'
   };
 
-  // Apply replacements
+  // Apply replacements safely
   Object.keys(corruptionMap).forEach(corrupted => {
-    const regex = new RegExp(corrupted, 'g');
-    repaired = repaired.replace(regex, corruptionMap[corrupted]);
+    try {
+      // Escape any special regex characters
+      const escapedCorrupted = corrupted.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(escapedCorrupted, 'g');
+      repaired = repaired.replace(regex, corruptionMap[corrupted]);
+    } catch (error) {
+      console.log(`⚠️ Skipping invalid pattern: ${corrupted}`, error.message);
+    }
   });
 
-  // Fix common character-level issues
+  // Remove problematic patterns that might cause regex issues
   repaired = repaired
+    .replace(/izfln~/g, 'प्रसिद्ध') // Handle separately
+    .replace(/;/g, '') // Remove semicolons that might cause issues
+    .replace(/`/g, '') // Remove backticks
+    .replace(/~/g, '') // Remove tildes
+    .replace(/\^/g, '') // Remove carets
+    .replace(/&/g, '') // Remove ampersands
     .replace(/kS/g, 'क्')
     .replace(/kZ/g, 'क्')
     .replace(/±/g, '्')
