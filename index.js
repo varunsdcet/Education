@@ -177,6 +177,151 @@ app.delete("/chapter/delete/:id", verifyToken, async (req, res) => {
 // ============================================
 // FINAL PDF UPLOAD FUNCTION FOR RENDER.COM
 // ============================================
+// ============================================
+// DYNAMIC HINDI TEXT REPAIR SYSTEM
+// ============================================
+
+function repairHindiTextForYourPDF(text) {
+  if (!text) return "";
+  
+  console.log("🔧 Applying dynamic Hindi text repair...");
+  
+  let repaired = text;
+
+  // PHASE 1: Detect and map common dynamic patterns
+  const dynamicPatterns = detectDynamicPatterns(text);
+  
+  // PHASE 2: Apply dynamic replacements
+  Object.keys(dynamicPatterns).forEach(corrupted => {
+    const safePattern = corrupted.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(safePattern, 'g');
+    repaired = repaired.replace(regex, dynamicPatterns[corrupted]);
+  });
+
+  // PHASE 3: Apply known static patterns
+  repaired = applyStaticPatterns(repaired);
+
+  // PHASE 4: Character-level fixes
+  repaired = applyCharacterLevelFixes(repaired);
+
+  console.log(`🔧 Dynamic repair completed: ${text.length} → ${repaired.length} chars`);
+  
+  return repaired;
+}
+
+// ============================================
+// DYNAMIC PATTERN DETECTION
+// ============================================
+
+function detectDynamicPatterns(text) {
+  const patterns = {};
+  
+  // Common Hindi word endings that get corrupted
+  const commonEndings = {
+    'osQ': 'के',      // Possessive
+    'dks': 'को',      // Object marker
+    'ls': 'से',       // From/with
+    'esa': 'में',     // In
+    'dh': 'की',       // Feminine possessive
+    'dk': 'का',       // Masculine possessive
+    'gSa': 'हैं',     // Plural verb
+    'gS': 'है',       // Singular verb
+    'fd': 'कि',       // That
+    'rks': 'तो',      // Then
+    'us': 'ने',       // Subject marker (past)
+    'vkSj': 'और',     // And
+  };
+
+  // Detect these patterns in the text
+  Object.keys(commonEndings).forEach(pattern => {
+    if (text.includes(pattern)) {
+      patterns[pattern] = commonEndings[pattern];
+    }
+  });
+
+  // Detect corrupted verb patterns
+  const verbPatterns = [
+    { test: /[a-z]krs/g, replace: 'करते' },  // Doing
+    { test: /[a-z]krh/g, replace: 'करती' },  // Doing (fem)
+    { test: /[a-z]k jgs/g, replace: 'क जा रहे' }, // Continuous tense
+    { test: /[a-z]k fnk/g, replace: 'क दिया' },   // Gave
+  ];
+
+  verbPatterns.forEach(({ test, replace }) => {
+    if (test.test(text)) {
+      const matches = text.match(test);
+      if (matches) {
+        matches.forEach(match => {
+          patterns[match] = replace;
+        });
+      }
+    }
+  });
+
+  console.log(`🎯 Detected ${Object.keys(patterns).length} dynamic patterns`);
+  return patterns;
+}
+
+// ============================================
+// STATIC PATTERN REPLACEMENTS
+// ============================================
+
+function applyStaticPatterns(text) {
+  let repaired = text;
+  
+  const staticPatterns = {
+    // File headers and common corruptions
+    'fganh&6': 'हिंदी',
+    'tkno': 'जादव',
+    'eksykbZ': 'पायेंगे',
+    'eSu': 'मैन',
+    'bafM': 'इंडिया',
+    'iQkWjsLV': 'फॉरेस्ट',
+    
+    // Remove corruption markers
+    '^': '',
+    '~': '',
+    '&': '',
+    '`': '',
+    ';': '',
+  };
+
+  Object.keys(staticPatterns).forEach(pattern => {
+    const safePattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(safePattern, 'g');
+    repaired = repaired.replace(regex, staticPatterns[pattern]);
+  });
+
+  return repaired;
+}
+
+// ============================================
+// CHARACTER-LEVEL FIXES
+// ============================================
+
+function applyCharacterLevelFixes(text) {
+  return text
+    // Fix common character corruptions
+    .replace(/kS/g, 'क्')
+    .replace(/kZ/g, 'क्')
+    .replace(/±/g, '्')
+    .replace(/S/g, '्')
+    .replace(/Z/g, '्')
+    
+    // Fix spacing issues
+    .replace(/([\u0900-\u0963])\s+([\u093E-\u094F])/g, '$1$2')
+    .replace(/([\u093E-\u094F])\s+([\u0900-\u0963])/g, '$1$2')
+    
+    // Clean up
+    .replace(/Ã/g, '')
+    .replace(/÷/g, '')
+    .replace(/×/g, '');
+}
+
+// ============================================
+// ENHANCED UPLOAD FUNCTION WITH SMART DETECTION
+// ============================================
+
 app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => {
   try {
     const { chapterId } = req.body;
@@ -184,12 +329,11 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
       return res.status(400).json({ success: false, message: "chapterId & file required" });
     }
 
-    console.log("🔄 Processing Hindi PDF on Render...");
+    console.log("🔄 Processing PDF with dynamic Hindi repair...");
 
     // Verify chapter exists
     const chapterExists = await ChapterModel.findById(chapterId);
     if (!chapterExists) {
-      console.log("❌ Chapter not found:", chapterId);
       return res.status(404).json({ success: false, message: "Chapter not found" });
     }
 
@@ -198,53 +342,39 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
       pdfData = await pdfParse(req.file.buffer);
       console.log(`📊 PDF parsed: ${pdfData.numpages} pages`);
     } catch (parseError) {
-      console.error("PDF parse error:", parseError);
       return res.status(400).json({ success: false, message: "Invalid PDF file" });
     }
 
-    // Extract text using pdf-parse (pure JavaScript - works on Render)
+    // Extract text
     let extractedText = (pdfData.text || "").trim();
     console.log(`📝 Extracted: ${extractedText.length} chars`);
 
     let finalText = "";
     let extractionMethod = "direct";
-    let warning = "";
+    let repairStats = {};
 
     if (extractedText.length > 50) {
-      // We have text - repair the corrupted Hindi
-      console.log("🔧 Repairing corrupted Hindi text...");
-     try {
-  finalText = repairHindiTextForYourPDF(extractedText);
-  extractionMethod = "hindi_repaired";
-} catch (repairError) {
-  console.error("Text repair failed, using original text:", repairError);
-  finalText = cleanHindiText(extractedText);
-  extractionMethod = "direct_clean_fallback";
-  warning = "Text repair failed, using original text";
-}
-      extractionMethod = "hindi_repaired";
+      // Analyze the corruption level
+      const corruptionAnalysis = analyzeCorruption(extractedText);
+      console.log(`🔍 Corruption analysis:`, corruptionAnalysis);
       
-      // Check if repair was successful
-      const hindiChars = (finalText.match(/[\u0900-\u097F]/g) || []).length;
-      if (hindiChars === 0) {
-        warning = "Text extracted but may be image-based PDF";
-      }
+      // Apply dynamic repair
+      finalText = repairHindiTextForYourPDF(extractedText);
+      extractionMethod = "dynamic_repair";
+      repairStats = corruptionAnalysis;
     } else {
-      // Very little text - likely scanned PDF
-      finalText = "📄 This PDF appears to be image-based (scanned). Limited text extraction available.\n\n" + extractedText;
-      extractionMethod = "scanned_pdf";
-      warning = "Image-based PDF - limited text extraction";
+      finalText = extractedText;
+      extractionMethod = "minimal_text";
     }
 
-    // Calculate quality metrics
+    // Calculate final metrics
     const hindiCharCount = (finalText.match(/[\u0900-\u097F]/g) || []).length;
-    const englishCharCount = (finalText.match(/[a-zA-Z]/g) || []).length;
     const totalChars = finalText.length;
     const hindiPercentage = totalChars > 0 ? Math.round((hindiCharCount / totalChars) * 100) : 0;
 
-    console.log(`📈 Final metrics: Total=${totalChars}, Hindi=${hindiCharCount} (${hindiPercentage}%)`);
+    console.log(`📈 Final: ${totalChars} chars, ${hindiPercentage}% Hindi`);
 
-    // Save to DB with better error handling
+    // Save to database
     try {
       const contentData = {
         chapterId: chapterId,
@@ -253,54 +383,45 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
         size: req.file.size,
         extractionMethod: extractionMethod,
         qualityMetrics: {
-          totalChars: finalText.length,
-          pages: pdfData.numpages,
+          totalChars,
           hindiChars: hindiCharCount,
-          englishChars: englishCharCount,
-          hindiPercentage: hindiPercentage,
-          originalTextLength: extractedText.length,
-          warning: warning
+          hindiPercentage,
+          pages: pdfData.numpages,
+          repairStats: repairStats
         }
       };
 
-      console.log("💽 Saving to database...");
-
-      const result = await ChapterContentModel.findOneAndUpdate(
+      await ChapterContentModel.findOneAndUpdate(
         { chapterId: chapterId },
         contentData,
-        { 
-          upsert: true, 
-          new: true,
-          runValidators: true 
-        }
+        { upsert: true, new: true }
       );
 
-      console.log("✅ Content saved to database, ID:", result._id);
+      console.log("✅ Content saved to database");
 
     } catch (dbError) {
-      console.error("❌ Database save error:", dbError);
+      console.error("Database error:", dbError);
       return res.status(500).json({ 
         success: false, 
-        message: `Database error: ${dbError.message}` 
+        message: "Failed to save to database" 
       });
     }
 
     res.json({ 
       success: true, 
-      message: "PDF text extracted and saved successfully" + (warning ? " - " + warning : ""),
+      message: "PDF processed with dynamic Hindi repair",
       extractionMethod,
       stats: {
         totalLength: finalText.length,
         pages: pdfData.numpages,
         hindiChars: hindiCharCount,
-        englishChars: englishCharCount,
         hindiPercentage: hindiPercentage,
-        warning: warning || "None"
+        repairStats: repairStats
       }
     });
     
   } catch (err) {
-    console.error("❌ PDF upload error:", err);
+    console.error("Upload error:", err);
     res.status(500).json({ 
       success: false, 
       message: `Upload failed: ${err.message}` 
@@ -309,120 +430,46 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
 });
 
 // ============================================
-// SPECIALIZED HINDI TEXT REPAIR FOR YOUR PDF
+// CORRUPTION ANALYSIS FUNCTION
 // ============================================
-// ============================================
-// SPECIALIZED HINDI TEXT REPAIR FOR YOUR PDF
-// ============================================
-function repairHindiTextForYourPDF(text) {
-  if (!text) return "";
-  
-  console.log("🔧 Applying specialized Hindi text repair...");
-  
-  let repaired = text;
 
-  // COMPREHENSIVE CORRUPTION MAPPING FOR YOUR SPECIFIC PDF
-  // Using only safe characters in the corruption map
-  const corruptionMap = {
-    // Header and title corruptions
-    'fganh&6': 'हिंदी',
-    
-    // Name corruptions
-    'tkno': 'जादव',
-    'eksykbZ': 'पायेंगे',
-    
-    // English word corruptions
-    '\\^QkWjsLV': 'फॉरेस्ट', // Escape the ^ character
-    'iQkWjsLV': 'फॉरेस्ट',
-    'eSu': 'मैन',
-    'bafM': 'इंडिया',
-    '\\^eSu': 'मैन', // Escape the ^ character
-    
-    // Common Hindi word corruptions (safe ones only)
-    'osQ': 'के',
-    'txg': 'जगह',
-    'gSa': 'हैं',
-    'vkSj': 'और',
-    'gS': 'है',
-    'fd': 'कि',
-    'rks': 'तो',
-    'dks': 'को',
-    'dh': 'की',
-    'dk': 'का',
-    'esa': 'में',
-    'ls': 'से',
-    'us': 'ने',
-    'vius': 'अपने',
-    'clk': 'बसा',
-    'gqvk': 'हुआ',
-    'fy,': 'लिए',
-    'fofHkUu': 'विभिन्न',
-    'ns[kus': 'देखने',
-    'feyrs': 'मिलते',
-    'i;ZVd': 'पर्यटक',
-    'vkrs': 'आते',
-    'dj': 'कर',
-    'nsrh': 'देती',
-    'gekjh': 'हमारी',
-    'ij': 'पर',
-    'lHkh': 'सभी',
-    'ilan': 'पसंद',
-    'djrs': 'करते',
-    'ysfdu': 'लेकिन',
-    'buesa': 'इनमें',
-    'oqQN': 'कुछ',
-    'yksx': 'लोग',
-    'tks': 'जो',
-    'dke': 'काम',
-    'ugha': 'नहीं',
-    'lR;': 'सत्य',
-    'vle': 'असम',
-    'xk¡o': 'गाँव',
-    'jgus': 'रहने',
-    'okys': 'वाले',
-    'eglwl': 'महसूस',
-    'fd;k': 'किया',
-    'vuwBk': 'अनूठा',
-    'dne': 'कदम',
-    'mBk;k': 'उठाया'
-  };
-
-  // Apply replacements safely
-  Object.keys(corruptionMap).forEach(corrupted => {
-    try {
-      // Escape any special regex characters
-      const escapedCorrupted = corrupted.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const regex = new RegExp(escapedCorrupted, 'g');
-      repaired = repaired.replace(regex, corruptionMap[corrupted]);
-    } catch (error) {
-      console.log(`⚠️ Skipping invalid pattern: ${corrupted}`, error.message);
+function analyzeCorruption(text) {
+  const commonPatterns = [
+    'osQ', 'dks', 'ls', 'esa', 'dh', 'dk', 'gSa', 'gS', 'fd', 'rks', 'us', 'vkSj'
+  ];
+  
+  let detectedPatterns = [];
+  let patternCount = 0;
+  
+  commonPatterns.forEach(pattern => {
+    if (text.includes(pattern)) {
+      detectedPatterns.push(pattern);
+      patternCount += (text.match(new RegExp(pattern, 'g')) || []).length;
     }
   });
 
-  // Remove problematic patterns that might cause regex issues
-  repaired = repaired
-    .replace(/izfln~/g, 'प्रसिद्ध') // Handle separately
-    .replace(/;/g, '') // Remove semicolons that might cause issues
-    .replace(/`/g, '') // Remove backticks
-    .replace(/~/g, '') // Remove tildes
-    .replace(/\^/g, '') // Remove carets
-    .replace(/&/g, '') // Remove ampersands
-    .replace(/kS/g, 'क्')
-    .replace(/kZ/g, 'क्')
-    .replace(/±/g, '्')
-    .replace(/S/g, '्')
-    .replace(/Z/g, '्')
-    .replace(/Ã/g, '')
-    .replace(/÷/g, '')
-    .replace(/×/g, '');
+  const hindiChars = (text.match(/[\u0900-\u097F]/g) || []).length;
+  const totalChars = text.length;
+  const hindiRatio = totalChars > 0 ? hindiChars / totalChars : 0;
 
-  // Clean up the text
-  repaired = cleanHindiText(repaired);
-
-  console.log(`🔧 Repair completed: ${text.length} → ${repaired.length} characters`);
-  
-  return repaired;
+  return {
+    detectedPatterns,
+    patternCount,
+    totalPatterns: commonPatterns.length,
+    hindiChars,
+    totalChars,
+    hindiRatio: Math.round(hindiRatio * 100),
+    corruptionLevel: patternCount > 10 ? 'high' : patternCount > 5 ? 'medium' : 'low'
+  };
 }
+
+// ============================================
+// SPECIALIZED HINDI TEXT REPAIR FOR YOUR PDF
+// ============================================
+// ============================================
+// SPECIALIZED HINDI TEXT REPAIR FOR YOUR PDF
+// ============================================
+
 
 // ============================================
 // CLEANING FUNCTION
