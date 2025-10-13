@@ -6,6 +6,9 @@ const multer = require("multer");
 const pdfParse = require("pdf-parse");
 const mongoose = require("mongoose");
 const PdfReader = require("pdfreader").PdfReader;
+const { fromBuffer } = require("pdf2pic");
+const Tesseract = require("tesseract.js");
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -175,7 +178,8 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
     if (!chapterId || !req.file)
       return res.status(400).json({ success: false, message: "chapterId & file required" });
 
-    const converter = pdf2pic.fromBuffer(req.file.buffer, {
+    // Convert PDF to images
+    const converter = fromBuffer(req.file.buffer, {
       density: 150,
       format: "png",
       width: 1200,
@@ -185,11 +189,13 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
     const pageImages = await converter.bulk(-1); // convert all pages
     let extractedText = "";
 
+    // OCR each page (Hindi)
     for (const page of pageImages) {
       const { data: { text } } = await Tesseract.recognize(page.path, "hin");
       extractedText += text + "\n";
     }
 
+    // Save extracted text to MongoDB
     await ChapterContentModel.findOneAndUpdate(
       { chapterId },
       { chapterId, content: extractedText.trim(), fileName: req.file.originalname, size: req.file.size },
@@ -201,6 +207,7 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
 // --- PDF Upload & Extract Text ---
 // app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => {
 //   try {
