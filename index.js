@@ -176,6 +176,7 @@ app.delete("/chapter/delete/:id", verifyToken, async (req, res) => {
 
 // --- PDF Upload & Extract Text (Hindi + English) - Pure JS Solution ---
 // Enhanced PDF Upload & Extract Text (Hindi + English) with Advanced Cleaning
+// Enhanced PDF Upload with Font Encoding Detection & OCR Fallback
 app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => {
   try {
     const { chapterId } = req.body;
@@ -184,190 +185,39 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
 
     console.log("Starting PDF text extraction...");
 
-    // Method 1: Try pdf-parse first (works for text-based PDFs)
+    // Method 1: Try pdf-parse first
     let pdfData = await pdfParse(req.file.buffer);
     let fullText = (pdfData.text || "").trim();
 
     console.log(`Extracted ${fullText.length} characters using pdf-parse`);
 
-    // If we got text, use it (even if it has encoding issues, we'll clean it)
-    if (fullText && fullText.length > 100) {
-      console.log("Using pdf-parse extracted text with enhanced cleaning");
+    // ============================================
+    // DETECT FONT ENCODING CORRUPTION
+    // ============================================
+    const isCorrupted = detectFontEncodingCorruption(fullText);
+    
+    if (isCorrupted) {
+      console.log("⚠️ FONT ENCODING CORRUPTION DETECTED - Switching to OCR");
       
-      // ============================================
-      // ENHANCED HINDI TEXT CLEANING ALGORITHM
-      // ============================================
+      // Force OCR for corrupted PDFs
+      fullText = await performOCR(req.file.buffer);
       
-      fullText = fullText
-        // Step 1: Fix common PDF encoding errors
-        .replace(/��/g, '')
-        .replace(/\uFFFD/g, '')
-        .replace(/\u0000/g, '')
-        
-        // Step 2: Remove zero-width and invisible characters
-        .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
-        
-        // Step 3: Normalize Unicode to composed form (critical for Hindi)
-        .normalize("NFC")
-        
-        // Step 4: Fix newlines breaking Hindi characters
-        // Remove \n between Devanagari characters
-        .replace(/([\u0900-\u097F])\n+(?=[\u0900-\u097F])/g, '$1')
-        
-        // Remove \n before vowel signs (matras)
-        .replace(/\n+(?=[\u093E-\u094F\u0962-\u0963])/g, '')
-        
-        // Remove \n after consonants when followed by matra
-        .replace(/([\u0915-\u0939\u0958-\u095F])\n+(?=[\u093E-\u094F])/g, '$1')
-        
-        // Remove \n after halant/virama (्)
-        .replace(/\u094D\n+/g, '\u094D')
-        
-        // Remove \n before/after anusvara (ं), chandrabindu (ँ), visarga (ः)
-        .replace(/\n+(?=[\u0901-\u0903])/g, '')
-        .replace(/([\u0901-\u0903])\n+/g, '$1')
-        
-        // Step 5: Fix duplicate matras (common PDF extraction bug)
-        .replace(/(\u093E){2,}/g, '$1')  // ा
-        .replace(/(\u093F){2,}/g, '$1')  // ि
-        .replace(/(\u0940){2,}/g, '$1')  // ी
-        .replace(/(\u0941){2,}/g, '$1')  // ु
-        .replace(/(\u0942){2,}/g, '$1')  // ू
-        .replace(/(\u0943){2,}/g, '$1')  // ृ
-        .replace(/(\u0944){2,}/g, '$1')  // ॄ
-        .replace(/(\u0945){2,}/g, '$1')  // ॅ
-        .replace(/(\u0946){2,}/g, '$1')  // ॆ
-        .replace(/(\u0947){2,}/g, '$1')  // े
-        .replace(/(\u0948){2,}/g, '$1')  // ै
-        .replace(/(\u0949){2,}/g, '$1')  // ॉ
-        .replace(/(\u094A){2,}/g, '$1')  // ॊ
-        .replace(/(\u094B){2,}/g, '$1')  // ो
-        .replace(/(\u094C){2,}/g, '$1')  // ौ
-        
-        // Step 6: Fix duplicate diacritical marks
-        .replace(/(\u0902){2,}/g, '$1')  // ं anusvara
-        .replace(/(\u0901){2,}/g, '$1')  // ँ chandrabindu
-        .replace(/(\u0903){2,}/g, '$1')  // ः visarga
-        
-        // Step 7: Remove standalone single newlines within Devanagari text
-        .replace(/([\u0900-\u097F])\n(?=[\u0900-\u097F])/g, '$1')
-        
-        // Step 8: Fix misplaced matras (matra appearing before consonant)
-        .replace(/([\u093E-\u094C])([\u0915-\u0939])/g, '$2$1')
-        
-        // Step 9: Remove extra spaces around Devanagari punctuation
-        .replace(/\s+(।)/g, '$1')
-        .replace(/(।)\s+/g, '$1 ')
-        
-        // Step 10: Fix common word breaks
-        .replace(/ो\s+सा/g, 'ोसा')
-        .replace(/ि\s+सा/g, 'िसा')
-        .replace(/े\s+सा/g, 'ेसा')
-        
-        // Step 11: Clean excessive whitespace but preserve paragraph breaks
-        .replace(/\n{4,}/g, '\n\n\n')  // Max 3 newlines
-        .replace(/\n{3}/g, '\n\n')     // Convert triple to double
-        .replace(/[ \t]{2,}/g, ' ')    // Multiple spaces to single
-        .replace(/[ \t]+\n/g, '\n')    // Trailing spaces before newline
-        .replace(/\n[ \t]+/g, '\n')    // Leading spaces after newline
-        
-        // Step 12: Fix common English punctuation issues
-        .replace(/\s+([.,;:!?])/g, '$1')
-        .replace(/([.,;:!?])\s*\n/g, '$1\n')
-        
-        // Step 13: Fix common Hindi number issues (Devanagari numerals)
-        .replace(/([\u0966-\u096F])\n+/g, '$1')
-        
-        // Step 14: Remove orphaned combining marks at start of line
-        .replace(/\n[\u093E-\u094F\u0901-\u0903]/g, '\n')
-        
-        // Step 15: Fix common OCR errors for Hindi
-        .replace(/0/g, (match, offset, string) => {
-          // Check if surrounded by Devanagari - might be ० (zero)
-          const before = string[offset - 1];
-          const after = string[offset + 1];
-          if (before && after && 
-              before.match(/[\u0900-\u097F]/) && 
-              after.match(/[\u0900-\u097F]/)) {
-            return '\u0966'; // Devanagari zero
-          }
-          return match;
-        })
-        
-        // Step 16: Final normalization
-        .normalize("NFC")
-        
-        // Step 17: Trim each line
-        .split('\n')
-        .map(line => line.trim())
-        .join('\n')
-        
-        // Step 18: Remove empty lines (but keep paragraph breaks)
-        .replace(/\n\n+/g, '\n\n')
-        
-        // Final trim
-        .trim();
-
-      console.log(`After cleaning: ${fullText.length} characters`);
+    } else if (fullText && fullText.length > 100) {
+      console.log("✓ Text looks valid, applying standard cleaning");
+      
+      // Apply standard cleaning for valid text
+      fullText = cleanHindiText(fullText);
       
     } else {
       console.log("Text extraction insufficient, trying OCR fallback");
-      
-      // Method 2: OCR fallback for image-based PDFs
-      const tempPdfPath = path.join('./temp', `upload_${Date.now()}.pdf`);
-      if (!fs.existsSync('./temp')) {
-        fs.mkdirSync('./temp');
-      }
-      fs.writeFileSync(tempPdfPath, req.file.buffer);
-
-      try {
-        // Try OCR with Hindi + English
-        const { data: { text } } = await Tesseract.recognize(
-          tempPdfPath,
-          "hin+eng",
-          {
-            logger: m => {
-              if (m.status === 'recognizing text') {
-                console.log(`OCR Progress: ${Math.round(m.progress * 100)}%`);
-              }
-            }
-          }
-        );
-        
-        fullText = text;
-        console.log("OCR extraction successful");
-        
-        // Apply same cleaning to OCR text
-        fullText = fullText
-          .normalize("NFC")
-          .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
-          .replace(/(\u093E){2,}/g, '$1')
-          .replace(/(\u0940){2,}/g, '$1')
-          .replace(/(\u0947){2,}/g, '$1')
-          .replace(/\n{3,}/g, '\n\n')
-          .replace(/[ \t]{2,}/g, ' ')
-          .trim();
-          
-      } catch (ocrErr) {
-        console.log("OCR failed:", ocrErr.message);
-        fullText = pdfData.text || "";
-      }
-
-      // Clean up temp file
-      try {
-        if (fs.existsSync(tempPdfPath)) {
-          fs.unlinkSync(tempPdfPath);
-        }
-      } catch (e) {
-        console.error("Temp file cleanup error:", e.message);
-      }
+      fullText = await performOCR(req.file.buffer);
     }
 
-    // Validation
+    // Final validation
     if (!fullText || fullText.length < 10) {
       return res.status(400).json({ 
         success: false, 
-        message: "Could not extract sufficient text from PDF. Please ensure the PDF contains readable text." 
+        message: "Could not extract sufficient text from PDF. The PDF may be image-based or have encoding issues." 
       });
     }
 
@@ -378,7 +228,7 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
     
     console.log(`Quality metrics: Total=${totalChars}, Hindi=${hindiCharCount}, English=${englishCharCount}`);
 
-    // Save extracted text to DB
+    // Save to DB
     await ChapterContentModel.findOneAndUpdate(
       { chapterId },
       {
@@ -398,7 +248,8 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
         pages: pdfData.numpages,
         hindiChars: hindiCharCount,
         englishChars: englishCharCount,
-        hindiPercentage: Math.round((hindiCharCount / totalChars) * 100)
+        hindiPercentage: totalChars > 0 ? Math.round((hindiCharCount / totalChars) * 100) : 0,
+        extractionMethod: isCorrupted ? 'OCR' : 'Text'
       }
     });
     
@@ -407,6 +258,265 @@ app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => 
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
+// ============================================
+// HELPER FUNCTION: DETECT FONT ENCODING CORRUPTION
+// ============================================
+function detectFontEncodingCorruption(text) {
+  if (!text || text.length < 50) return false;
+  
+  // Check for suspicious patterns that indicate font encoding issues
+  const suspiciousPatterns = [
+    /[a-z]{2,}\s[A-Z][a-z]+\s[a-z]{2,}/g,  // Pattern like: "fganh&6 ^QkWjsLV eSu"
+    /\^[A-Z][a-z]+/g,                       // Pattern like: ^QkWjsLV
+    /os[QKk]/g,                             // Common corruption pattern
+    /[a-z]&\d/g,                            // Pattern like: fganh&6
+    /[a-z]{3,}[A-Z][a-z]+/g,                // Mixed case nonsense
+  ];
+  
+  let suspiciousMatches = 0;
+  for (const pattern of suspiciousPatterns) {
+    const matches = text.match(pattern);
+    if (matches) {
+      suspiciousMatches += matches.length;
+    }
+  }
+  
+  // Check Hindi character ratio
+  const hindiChars = (text.match(/[\u0900-\u097F]/g) || []).length;
+  const totalChars = text.length;
+  const hindiRatio = hindiChars / totalChars;
+  
+  // If we expect Hindi but have very little Hindi + lots of suspicious patterns
+  const hasLowHindiRatio = hindiRatio < 0.05;  // Less than 5% Hindi
+  const hasSuspiciousPatterns = suspiciousMatches > 10;
+  
+  // Check for common corrupted Hindi words
+  const corruptedHindiWords = [
+    'fganh', 'tkno', 'eksykbZ', '^QkWjsLV', 'eSu',
+    'osQ', 'izfln~', 'txg', 'gSa', 'vkSj'
+  ];
+  
+  let corruptedWordCount = 0;
+  for (const word of corruptedHindiWords) {
+    if (text.includes(word)) {
+      corruptedWordCount++;
+    }
+  }
+  
+  console.log(`Corruption detection: HindiRatio=${hindiRatio.toFixed(3)}, Suspicious=${suspiciousMatches}, CorruptedWords=${corruptedWordCount}`);
+  
+  // Decision: Text is corrupted if it has low Hindi AND (suspicious patterns OR corrupted words)
+  return hasLowHindiRatio && (hasSuspiciousPatterns || corruptedWordCount >= 3);
+}
+
+// ============================================
+// HELPER FUNCTION: PERFORM OCR
+// ============================================
+async function performOCR(fileBuffer) {
+  const tempPdfPath = path.join('./temp', `upload_${Date.now()}.pdf`);
+  const tempImageDir = path.join('./temp', `images_${Date.now()}`);
+  
+  try {
+    // Create temp directories
+    if (!fs.existsSync('./temp')) {
+      fs.mkdirSync('./temp');
+    }
+    if (!fs.existsSync(tempImageDir)) {
+      fs.mkdirSync(tempImageDir);
+    }
+    
+    // Save buffer to file
+    fs.writeFileSync(tempPdfPath, fileBuffer);
+    
+    console.log("Converting PDF to images for better OCR...");
+    
+    // Convert PDF pages to images using pdf2pic
+    const convert = fromBuffer(fileBuffer, {
+      density: 300,           // Higher DPI for better quality
+      saveFilename: "page",
+      savePath: tempImageDir,
+      format: "png",
+      width: 2480,            // A4 at 300 DPI
+      height: 3508
+    });
+    
+    // Get total pages
+    const pdfData = await pdfParse(fileBuffer);
+    const totalPages = pdfData.numpages;
+    console.log(`Processing ${totalPages} pages...`);
+    
+    let allText = "";
+    
+    // Process each page
+    for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+      try {
+        console.log(`Processing page ${pageNum}/${totalPages}...`);
+        
+        // Convert page to image
+        const result = await convert(pageNum, { responseType: "image" });
+        const imagePath = result.path;
+        
+        // Perform OCR on the image with optimized settings
+        const { data: { text } } = await Tesseract.recognize(
+          imagePath,
+          "hin+eng",
+          {
+            logger: m => {
+              if (m.status === 'recognizing text') {
+                process.stdout.write(`\rPage ${pageNum} OCR: ${Math.round(m.progress * 100)}%`);
+              }
+            },
+            // Optimized Tesseract parameters for Hindi textbooks
+            tessedit_pageseg_mode: Tesseract.PSM.AUTO,
+            preserve_interword_spaces: '1'
+          }
+        );
+        
+        if (text && text.trim().length > 0) {
+          allText += text + "\n\n";
+          console.log(`\n✓ Page ${pageNum} completed (${text.length} chars)`);
+        }
+        
+      } catch (pageErr) {
+        console.error(`\n✗ Error on page ${pageNum}:`, pageErr.message);
+        // Continue with next page
+      }
+    }
+    
+    console.log("\n✓ All pages processed successfully");
+    
+    // Clean the combined OCR output
+    return cleanHindiText(allText);
+    
+  } catch (ocrErr) {
+    console.error("OCR failed:", ocrErr.message);
+    
+    // Fallback: Try direct PDF OCR if image conversion fails
+    console.log("Trying direct PDF OCR as fallback...");
+    try {
+      const { data: { text } } = await Tesseract.recognize(
+        tempPdfPath,
+        "hin+eng",
+        {
+          logger: m => {
+            if (m.status === 'recognizing text') {
+              console.log(`OCR Progress: ${Math.round(m.progress * 100)}%`);
+            }
+          }
+        }
+      );
+      return cleanHindiText(text);
+    } catch (fallbackErr) {
+      throw new Error("OCR extraction failed: " + fallbackErr.message);
+    }
+    
+  } finally {
+    // Clean up temp files
+    try {
+      if (fs.existsSync(tempPdfPath)) {
+        fs.unlinkSync(tempPdfPath);
+      }
+      if (fs.existsSync(tempImageDir)) {
+        const files = fs.readdirSync(tempImageDir);
+        for (const file of files) {
+          fs.unlinkSync(path.join(tempImageDir, file));
+        }
+        fs.rmdirSync(tempImageDir);
+      }
+    } catch (e) {
+      console.error("Temp file cleanup error:", e.message);
+    }
+  }
+}
+
+// ============================================
+// HELPER FUNCTION: CLEAN HINDI TEXT
+// ============================================
+function cleanHindiText(text) {
+  if (!text) return "";
+  
+  return text
+    // Step 1: Remove corrupted/replacement characters
+    .replace(/��/g, '')
+    .replace(/\uFFFD/g, '')
+    .replace(/\u0000/g, '')
+    
+    // Step 2: Remove zero-width and invisible characters
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
+    
+    // Step 3: Normalize Unicode to composed form (NFC)
+    .normalize("NFC")
+    
+    // Step 4: Fix newlines breaking Hindi characters
+    .replace(/([\u0900-\u097F])\n+(?=[\u0900-\u097F])/g, '$1')
+    .replace(/\n+(?=[\u093E-\u094F\u0962-\u0963])/g, '')
+    .replace(/([\u0915-\u0939\u0958-\u095F])\n+(?=[\u093E-\u094F])/g, '$1')
+    .replace(/\u094D\n+/g, '\u094D')
+    .replace(/\n+(?=[\u0901-\u0903])/g, '')
+    .replace(/([\u0901-\u0903])\n+/g, '$1')
+    
+    // Step 5: Fix duplicate matras (vowel signs)
+    .replace(/(\u093E){2,}/g, '$1')  // ा
+    .replace(/(\u093F){2,}/g, '$1')  // ि
+    .replace(/(\u0940){2,}/g, '$1')  // ी
+    .replace(/(\u0941){2,}/g, '$1')  // ु
+    .replace(/(\u0942){2,}/g, '$1')  // ू
+    .replace(/(\u0943){2,}/g, '$1')  // ृ
+    .replace(/(\u0944){2,}/g, '$1')  // ॄ
+    .replace(/(\u0945){2,}/g, '$1')  // ॅ
+    .replace(/(\u0946){2,}/g, '$1')  // ॆ
+    .replace(/(\u0947){2,}/g, '$1')  // े
+    .replace(/(\u0948){2,}/g, '$1')  // ै
+    .replace(/(\u0949){2,}/g, '$1')  // ॉ
+    .replace(/(\u094A){2,}/g, '$1')  // ॊ
+    .replace(/(\u094B){2,}/g, '$1')  // ो
+    .replace(/(\u094C){2,}/g, '$1')  // ौ
+    
+    // Step 6: Fix duplicate diacritical marks
+    .replace(/(\u0902){2,}/g, '$1')  // ं anusvara
+    .replace(/(\u0901){2,}/g, '$1')  // ँ chandrabindu
+    .replace(/(\u0903){2,}/g, '$1')  // ः visarga
+    
+    // Step 7: Remove standalone newlines within Devanagari text
+    .replace(/([\u0900-\u097F])\n(?=[\u0900-\u097F])/g, '$1')
+    
+    // Step 8: Fix misplaced matras (vowel before consonant)
+    .replace(/([\u093E-\u094C])([\u0915-\u0939])/g, '$2$1')
+    
+    // Step 9: Remove extra spaces around Devanagari punctuation
+    .replace(/\s+(।)/g, '$1')
+    .replace(/(।)\s+/g, '$1 ')
+    
+    // Step 10: Clean excessive whitespace
+    .replace(/\n{4,}/g, '\n\n\n')
+    .replace(/\n{3}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    
+    // Step 11: Fix common punctuation issues
+    .replace(/\s+([.,;:!?])/g, '$1')
+    .replace(/([.,;:!?])\s*\n/g, '$1\n')
+    
+    // Step 12: Remove orphaned combining marks at start of line
+    .replace(/\n[\u093E-\u094F\u0901-\u0903]/g, '\n')
+    
+    // Step 13: Final normalization
+    .normalize("NFC")
+    
+    // Step 14: Trim each line
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0)  // Remove empty lines
+    .join('\n')
+    
+    // Step 15: Clean up paragraph breaks
+    .replace(/\n{2,}/g, '\n\n')
+    
+    // Final trim
+    .trim();
+}
 
 // --- Get multiple chapters content ---
 app.post("/content/multiple", async (req, res) => {
