@@ -36,12 +36,27 @@ const chapterContentSchema = new mongoose.Schema({
   qualityMetrics: Object
 }, { timestamps: true });
 
+const bookFeatureSchema = new mongoose.Schema({
+  bookId: { type: mongoose.Schema.Types.ObjectId, ref: 'Book', required: true, unique: true },
+  views: {
+    type: [String],
+    default: ["chat", "notes"],
+    enum: [
+      "chat", "mcq", "game", "notes", "flashcards",
+      "mistakes", "paper", "definitions", "summary",
+      "voice", "lessionplan", "assignment"
+    ]
+  }
+}, { timestamps: true });
+
+
+
 const ClassModel = mongoose.model("Class", classSchema);
 const SubjectModel = mongoose.model("Subject", subjectSchema);
 const BookModel = mongoose.model("Book", bookSchema);
 const ChapterModel = mongoose.model("Chapter", chapterSchema);
 const ChapterContentModel = mongoose.model("ChapterContent", chapterContentSchema);
-
+const BookFeatureModel = mongoose.model("BookFeature", bookFeatureSchema);
 // --- Login ---
 app.post("/free-login", (req, res) => {
   const { email, password } = req.body;
@@ -154,72 +169,13 @@ app.post("/chapter/add", verifyToken, async (req, res) => {
   res.json({ success: true, id: chapter._id });
 });
 
-// app.get("/chapter/list/:bookId", verifyToken, async (req, res) => {
-//   const chapters = await ChapterModel.find({ bookId: req.params.bookId });
-//   const result = await Promise.all(chapters.map(async chap => {
-//     const pdfCount = await ChapterContentModel.countDocuments({ chapterId: chap._id });
-//     return { ...chap.toObject(), pdfCount };
-//   }));
-//   res.json({ success: true, items: result });
-// });
-
-// --- PUBLIC: Get chapters + book name + enabled features ---
-app.get("/public/chapter/list/:bookId", async (req, res) => {
-  try {
-    const { bookId } = req.params;
-
-    // 1. Find the book
-    const book = await BookModel.findById(bookId).lean();
-    if (!book) {
-      return res.status(404).json({ success: false, message: "Book not found" });
-    }
-
-    // 2. Fetch enabled features from your external API (or DB if stored locally)
-    let enabledFeatures = ["chat", "notes"]; // default fallback
-    try {
-      const featuresRes = await fetch(
-        `https://education-c0c9.onrender.com/public/book/features/${bookId}`
-      );
-      if (featuresRes.ok) {
-        const data = await featuresRes.json();
-        if (data.views && Array.isArray(data.views) && data.views.length > 0) {
-          enabledFeatures = data.views;
-        }
-      }
-    } catch (err) {
-      console.warn("Could not fetch features for book:", bookId, err.message);
-      // Continue with defaults
-    }
-
-    // 3. Fetch chapters
-    const chapters = await ChapterModel.find({ bookId }).lean();
-
-    const result = await Promise.all(
-      chapters.map(async (chap) => {
-        const pdfCount = await ChapterContentModel.countDocuments({ chapterId: chap._id });
-        return {
-          ...chap,
-          _id: chap._id.toString(),
-          pdfCount,
-          hasContent: pdfCount > 0,
-        };
-      })
-    );
-
-    // 4. Return enriched response
-    res.json({
-      success: true,
-      book: {
-        _id: book._id.toString(),
-        name: book.name,
-        features: enabledFeatures, // This is what you wanted!
-      },
-      chapters: result,
-    });
-  } catch (error) {
-    console.error("Error in /public/chapter/list/:bookId:", error);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
+app.get("/chapter/list/:bookId", verifyToken, async (req, res) => {
+  const chapters = await ChapterModel.find({ bookId: req.params.bookId });
+  const result = await Promise.all(chapters.map(async chap => {
+    const pdfCount = await ChapterContentModel.countDocuments({ chapterId: chap._id });
+    return { ...chap.toObject(), pdfCount };
+  }));
+  res.json({ success: true, items: result });
 });
 
 app.put("/chapter/edit/:id", verifyToken, async (req, res) => {
@@ -594,6 +550,90 @@ app.get("/debug/db-check", async (req, res) => {
   }
 });
 
+
+app.post("/chapter/content/direct", verifyToken, async (req, res) => {
+  try {
+    const { chapterId, content, fileName } = req.body;
+
+    // Required fields
+    if (!chapterId || content === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: "chapterId and content are required",
+      });
+    }
+
+    if (typeof content !== "string" || content.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "content must be a non-empty string",
+      });
+    }
+
+    // Validate chapter exists
+    const chapter = await ChapterModel.findById(chapterId);
+    if (!chapter) {
+      return res.status(404).json({
+        success: false,
+        message: "Chapter not found",
+      });
+    }
+
+    const cleanContent = cleanHindiText(content.trim());
+
+    // Auto-generate fileName if not provided
+    const displayFileName = fileName?.trim()
+      ? fileName.trim()
+      : `Manual Text - ${new Date().toLocaleDateString("en-IN")}`;
+
+    const hindiChars = (cleanContent.match(/[\u0900-\u097F]/g) || []).length;
+    const totalChars = cleanContent.length;
+    const hindiPercentage = totalChars > 0 ? Math.round((hindiChars / totalChars) * 100) : 0;
+
+    const contentData = {
+      chapterId,
+      content: cleanContent,
+      fileName: displayFileName,
+      size: Buffer.byteLength(cleanContent, "utf8"),
+      extractionMethod: "direct_text",
+      qualityMetrics: {
+        totalChars,
+        hindiChars,
+        hindiPercentage,
+        pages: null,
+        source: "manual_entry",
+        uploadedAt: new Date(),
+      },
+    };
+
+    await ChapterContentModel.findOneAndUpdate(
+      { chapterId },
+      contentData,
+      { upsert: true, new: true }
+    );
+
+    console.log(`Direct text saved → Chapter: ${chapterId} | ${totalChars} chars | ${hindiPercentage}% Hindi`);
+
+    res.json({
+      success: true,
+      message: "Chapter content saved successfully (direct text)",
+      extractionMethod: "direct_text",
+      fileName: displayFileName,
+      stats: {
+        totalLength: totalChars,
+        hindiChars,
+        hindiPercentage,
+      },
+    });
+  } catch (error) {
+    console.error("Direct text upload failed:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+});
+
 app.get("/debug/content/:chapterId", async (req, res) => {
   try {
     const content = await ChapterContentModel.findOne({ chapterId: req.params.chapterId });
@@ -731,100 +771,179 @@ app.get("/public/book/list/:subjectId", async (req, res) => {
   res.json({ success: true, items: result });
 });
 
+// app.get("/public/chapter/list/:bookId", async (req, res) => {
+//   const chapters = await ChapterModel.find({ bookId: req.params.bookId });
+//   const result = await Promise.all(chapters.map(async chap => {
+//     const pdfCount = await ChapterContentModel.countDocuments({ chapterId: chap._id });
+//     return { ...chap.toObject(), pdfCount };
+//   }));
+//   res.json({ success: true, items: result });
+// });
+
 app.get("/public/chapter/list/:bookId", async (req, res) => {
-  const chapters = await ChapterModel.find({ bookId: req.params.bookId });
-  const result = await Promise.all(chapters.map(async chap => {
-    const pdfCount = await ChapterContentModel.countDocuments({ chapterId: chap._id });
-    return { ...chap.toObject(), pdfCount };
-  }));
-  res.json({ success: true, items: result });
-});
-
-// ADD THIS ENDPOINT TO YOUR index.js (after models, before app.listen)
-
-// POST /chapter/content/direct
-// Upload or update chapter content as plain text (NO PDF needed)
-// fileName is completely optional now
-app.post("/chapter/content/direct", verifyToken, async (req, res) => {
   try {
-    const { chapterId, content, fileName } = req.body;
+    const { bookId } = req.params;
 
-    // Required fields
-    if (!chapterId || content === undefined) {
-      return res.status(400).json({
-        success: false,
-        message: "chapterId and content are required",
-      });
+    // 1. Find the book
+    const book = await BookModel.findById(bookId).lean();
+    if (!book) {
+      return res.status(404).json({ success: false, message: "Book not found" });
     }
 
-    if (typeof content !== "string" || content.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "content must be a non-empty string",
-      });
+    // 2. Fetch enabled features from your external API (or DB if stored locally)
+    let enabledFeatures = ["chat", "notes"]; // default fallback
+    try {
+      const featuresRes = await fetch(
+        `https://education-c0c9.onrender.com/public/book/features/${bookId}`
+      );
+      if (featuresRes.ok) {
+        const data = await featuresRes.json();
+        if (data.views && Array.isArray(data.views) && data.views.length > 0) {
+          enabledFeatures = data.views;
+        }
+      }
+    } catch (err) {
+      console.warn("Could not fetch features for book:", bookId, err.message);
+      // Continue with defaults
     }
 
-    // Validate chapter exists
-    const chapter = await ChapterModel.findById(chapterId);
-    if (!chapter) {
-      return res.status(404).json({
-        success: false,
-        message: "Chapter not found",
-      });
-    }
+    // 3. Fetch chapters
+    const chapters = await ChapterModel.find({ bookId }).lean();
 
-    const cleanContent = cleanHindiText(content.trim());
-
-    // Auto-generate fileName if not provided
-    const displayFileName = fileName?.trim()
-      ? fileName.trim()
-      : `Manual Text - ${new Date().toLocaleDateString("en-IN")}`;
-
-    const hindiChars = (cleanContent.match(/[\u0900-\u097F]/g) || []).length;
-    const totalChars = cleanContent.length;
-    const hindiPercentage = totalChars > 0 ? Math.round((hindiChars / totalChars) * 100) : 0;
-
-    const contentData = {
-      chapterId,
-      content: cleanContent,
-      fileName: displayFileName,
-      size: Buffer.byteLength(cleanContent, "utf8"),
-      extractionMethod: "direct_text",
-      qualityMetrics: {
-        totalChars,
-        hindiChars,
-        hindiPercentage,
-        pages: null,
-        source: "manual_entry",
-        uploadedAt: new Date(),
-      },
-    };
-
-    await ChapterContentModel.findOneAndUpdate(
-      { chapterId },
-      contentData,
-      { upsert: true, new: true }
+    const result = await Promise.all(
+      chapters.map(async (chap) => {
+        const pdfCount = await ChapterContentModel.countDocuments({ chapterId: chap._id });
+        return {
+          ...chap,
+          _id: chap._id.toString(),
+          pdfCount,
+          hasContent: pdfCount > 0,
+        };
+      })
     );
 
-    console.log(`Direct text saved → Chapter: ${chapterId} | ${totalChars} chars | ${hindiPercentage}% Hindi`);
+    // 4. Return enriched response
+    res.json({
+      success: true,
+      book: {
+        _id: book._id.toString(),
+        name: book.name,
+        features: enabledFeatures, // This is what you wanted!
+      },
+      chapters: result,
+    });
+  } catch (error) {
+    console.error("Error in /public/chapter/list/:bookId:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+//Book add 
+app.post("/book/features/update", verifyToken, async (req, res) => {
+  try {
+    const { bookId, views } = req.body;
+
+    if (!bookId) {
+      return res.status(400).json({ success: false, message: "bookId is required" });
+    }
+
+    if (!Array.isArray(views) || views.length === 0) {
+      return res.status(400).json({ success: false, message: "Please select at least one feature" });
+    }
+
+    const validFeatures = [
+      "chat", "mcq", "game", "notes", "flashcards",
+      "mistakes", "paper", "definitions", "summary",
+      "voice", "lessionplan", "assignment"
+    ];
+
+    const invalid = views.filter(v => !validFeatures.includes(v));
+    if (invalid.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid features: ${invalid.join(", ")}`
+      });
+    }
+
+    // Check if book exists
+    const book = await BookModel.findById(bookId);
+    if (!book) {
+      return res.status(404).json({ success: false, message: "Book not found" });
+    }
+
+    const updated = await BookFeatureModel.findOneAndUpdate(
+      { bookId },
+      { views },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
 
     res.json({
       success: true,
-      message: "Chapter content saved successfully (direct text)",
-      extractionMethod: "direct_text",
-      fileName: displayFileName,
-      stats: {
-        totalLength: totalChars,
-        hindiChars,
-        hindiPercentage,
-      },
+      message: "Features updated successfully!",
+      bookId: bookId,
+      views: updated.views,
+      updatedAt: updated.updatedAt
     });
-  } catch (error) {
-    console.error("Direct text upload failed:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error",
+
+  } catch (err) {
+    console.error("Feature update error:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// ============================================
+// 2. GET FEATURES FOR A BOOK (For Edit Screen - Load Current Selection)
+// ============================================
+app.get("/book/features/:bookId", verifyToken, async (req, res) => {
+  try {
+    const { bookId } = req.params;
+
+    const feature = await BookFeatureModel.findOne({ bookId });
+
+    const defaultViews = ["chat", "notes"];
+    const currentViews = feature ? feature.views : defaultViews;
+
+    res.json({
+      success: true,
+      bookId,
+      views: currentViews,
+      isUsingDefault: !feature
     });
+
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ============================================
+// 3. PUBLIC: Get Features (Frontend Uses This to Show/Hide Buttons)
+// ============================================
+app.get("/public/book/features/:bookId", async (req, res) => {
+  try {
+    const feature = await BookFeatureModel.findOne({ bookId: req.params.bookId });
+
+    const views = feature?.views || ["chat", "notes"]; // fallback
+
+    res.json({
+      success: true,
+      bookId: req.params.bookId,
+      views,
+      enabled: {
+        chat: views.includes("chat"),
+        mcq: views.includes("mcq"),
+        game: views.includes("game"),
+        notes: views.includes("notes"),
+        flashcards: views.includes("flashcards"),
+        mistakes: views.includes("mistakes"),
+        paper: views.includes("paper"),
+        definitions: views.includes("definitions"),
+        summary: views.includes("summary"),
+        voice: views.includes("voice"),
+        lessionplan: views.includes("lessionplan"),
+        assignment: views.includes("assignment")
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
