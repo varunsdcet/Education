@@ -154,13 +154,72 @@ app.post("/chapter/add", verifyToken, async (req, res) => {
   res.json({ success: true, id: chapter._id });
 });
 
-app.get("/chapter/list/:bookId", verifyToken, async (req, res) => {
-  const chapters = await ChapterModel.find({ bookId: req.params.bookId });
-  const result = await Promise.all(chapters.map(async chap => {
-    const pdfCount = await ChapterContentModel.countDocuments({ chapterId: chap._id });
-    return { ...chap.toObject(), pdfCount };
-  }));
-  res.json({ success: true, items: result });
+// app.get("/chapter/list/:bookId", verifyToken, async (req, res) => {
+//   const chapters = await ChapterModel.find({ bookId: req.params.bookId });
+//   const result = await Promise.all(chapters.map(async chap => {
+//     const pdfCount = await ChapterContentModel.countDocuments({ chapterId: chap._id });
+//     return { ...chap.toObject(), pdfCount };
+//   }));
+//   res.json({ success: true, items: result });
+// });
+
+// --- PUBLIC: Get chapters + book name + enabled features ---
+app.get("/public/chapter/list/:bookId", async (req, res) => {
+  try {
+    const { bookId } = req.params;
+
+    // 1. Find the book
+    const book = await BookModel.findById(bookId).lean();
+    if (!book) {
+      return res.status(404).json({ success: false, message: "Book not found" });
+    }
+
+    // 2. Fetch enabled features from your external API (or DB if stored locally)
+    let enabledFeatures = ["chat", "notes"]; // default fallback
+    try {
+      const featuresRes = await fetch(
+        `https://education-c0c9.onrender.com/public/book/features/${bookId}`
+      );
+      if (featuresRes.ok) {
+        const data = await featuresRes.json();
+        if (data.views && Array.isArray(data.views) && data.views.length > 0) {
+          enabledFeatures = data.views;
+        }
+      }
+    } catch (err) {
+      console.warn("Could not fetch features for book:", bookId, err.message);
+      // Continue with defaults
+    }
+
+    // 3. Fetch chapters
+    const chapters = await ChapterModel.find({ bookId }).lean();
+
+    const result = await Promise.all(
+      chapters.map(async (chap) => {
+        const pdfCount = await ChapterContentModel.countDocuments({ chapterId: chap._id });
+        return {
+          ...chap,
+          _id: chap._id.toString(),
+          pdfCount,
+          hasContent: pdfCount > 0,
+        };
+      })
+    );
+
+    // 4. Return enriched response
+    res.json({
+      success: true,
+      book: {
+        _id: book._id.toString(),
+        name: book.name,
+        features: enabledFeatures, // This is what you wanted!
+      },
+      chapters: result,
+    });
+  } catch (error) {
+    console.error("Error in /public/chapter/list/:bookId:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
 });
 
 app.put("/chapter/edit/:id", verifyToken, async (req, res) => {
@@ -679,6 +738,94 @@ app.get("/public/chapter/list/:bookId", async (req, res) => {
     return { ...chap.toObject(), pdfCount };
   }));
   res.json({ success: true, items: result });
+});
+
+// ADD THIS ENDPOINT TO YOUR index.js (after models, before app.listen)
+
+// POST /chapter/content/direct
+// Upload or update chapter content as plain text (NO PDF needed)
+// fileName is completely optional now
+app.post("/chapter/content/direct", verifyToken, async (req, res) => {
+  try {
+    const { chapterId, content, fileName } = req.body;
+
+    // Required fields
+    if (!chapterId || content === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: "chapterId and content are required",
+      });
+    }
+
+    if (typeof content !== "string" || content.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "content must be a non-empty string",
+      });
+    }
+
+    // Validate chapter exists
+    const chapter = await ChapterModel.findById(chapterId);
+    if (!chapter) {
+      return res.status(404).json({
+        success: false,
+        message: "Chapter not found",
+      });
+    }
+
+    const cleanContent = cleanHindiText(content.trim());
+
+    // Auto-generate fileName if not provided
+    const displayFileName = fileName?.trim()
+      ? fileName.trim()
+      : `Manual Text - ${new Date().toLocaleDateString("en-IN")}`;
+
+    const hindiChars = (cleanContent.match(/[\u0900-\u097F]/g) || []).length;
+    const totalChars = cleanContent.length;
+    const hindiPercentage = totalChars > 0 ? Math.round((hindiChars / totalChars) * 100) : 0;
+
+    const contentData = {
+      chapterId,
+      content: cleanContent,
+      fileName: displayFileName,
+      size: Buffer.byteLength(cleanContent, "utf8"),
+      extractionMethod: "direct_text",
+      qualityMetrics: {
+        totalChars,
+        hindiChars,
+        hindiPercentage,
+        pages: null,
+        source: "manual_entry",
+        uploadedAt: new Date(),
+      },
+    };
+
+    await ChapterContentModel.findOneAndUpdate(
+      { chapterId },
+      contentData,
+      { upsert: true, new: true }
+    );
+
+    console.log(`Direct text saved → Chapter: ${chapterId} | ${totalChars} chars | ${hindiPercentage}% Hindi`);
+
+    res.json({
+      success: true,
+      message: "Chapter content saved successfully (direct text)",
+      extractionMethod: "direct_text",
+      fileName: displayFileName,
+      stats: {
+        totalLength: totalChars,
+        hindiChars,
+        hindiPercentage,
+      },
+    });
+  } catch (error) {
+    console.error("Direct text upload failed:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
 });
 
 // --- Start server ---
