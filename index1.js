@@ -36,27 +36,12 @@ const chapterContentSchema = new mongoose.Schema({
   qualityMetrics: Object
 }, { timestamps: true });
 
-const bookFeatureSchema = new mongoose.Schema({
-  bookId: { type: mongoose.Schema.Types.ObjectId, ref: 'Book', required: true, unique: true },
-  views: {
-    type: [String],
-    default: ["chat", "notes"],
-    enum: [
-      "chat", "mcq", "game", "notes", "flashcards",
-      "mistakes", "paper", "definitions", "summary",
-      "voice", "lessionplan", "assignment"
-    ]
-  }
-}, { timestamps: true });
-
-
-
 const ClassModel = mongoose.model("Class", classSchema);
 const SubjectModel = mongoose.model("Subject", subjectSchema);
 const BookModel = mongoose.model("Book", bookSchema);
 const ChapterModel = mongoose.model("Chapter", chapterSchema);
 const ChapterContentModel = mongoose.model("ChapterContent", chapterContentSchema);
-const BookFeatureModel = mongoose.model("BookFeature", bookFeatureSchema);
+
 // --- Login ---
 app.post("/free-login", (req, res) => {
   const { email, password } = req.body;
@@ -694,117 +679,6 @@ app.get("/public/chapter/list/:bookId", async (req, res) => {
     return { ...chap.toObject(), pdfCount };
   }));
   res.json({ success: true, items: result });
-});
-
-
-//Book add 
-app.post("/book/features/update", verifyToken, async (req, res) => {
-  try {
-    const { bookId, views } = req.body;
-
-    if (!bookId) {
-      return res.status(400).json({ success: false, message: "bookId is required" });
-    }
-
-    if (!Array.isArray(views) || views.length === 0) {
-      return res.status(400).json({ success: false, message: "Please select at least one feature" });
-    }
-
-    const validFeatures = [
-      "chat", "mcq", "game", "notes", "flashcards",
-      "mistakes", "paper", "definitions", "summary",
-      "voice", "lessionplan", "assignment"
-    ];
-
-    const invalid = views.filter(v => !validFeatures.includes(v));
-    if (invalid.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid features: ${invalid.join(", ")}`
-      });
-    }
-
-    // Check if book exists
-    const book = await BookModel.findById(bookId);
-    if (!book) {
-      return res.status(404).json({ success: false, message: "Book not found" });
-    }
-
-    const updated = await BookFeatureModel.findOneAndUpdate(
-      { bookId },
-      { views },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
-
-    res.json({
-      success: true,
-      message: "Features updated successfully!",
-      bookId: bookId,
-      views: updated.views,
-      updatedAt: updated.updatedAt
-    });
-
-  } catch (err) {
-    console.error("Feature update error:", err);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-});
-
-// ============================================
-// 2. GET FEATURES FOR A BOOK (For Edit Screen - Load Current Selection)
-// ============================================
-app.get("/book/features/:bookId", verifyToken, async (req, res) => {
-  try {
-    const { bookId } = req.params;
-
-    const feature = await BookFeatureModel.findOne({ bookId });
-
-    const defaultViews = ["chat", "notes"];
-    const currentViews = feature ? feature.views : defaultViews;
-
-    res.json({
-      success: true,
-      bookId,
-      views: currentViews,
-      isUsingDefault: !feature
-    });
-
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// ============================================
-// 3. PUBLIC: Get Features (Frontend Uses This to Show/Hide Buttons)
-// ============================================
-app.get("/public/book/features/:bookId", async (req, res) => {
-  try {
-    const feature = await BookFeatureModel.findOne({ bookId: req.params.bookId });
-
-    const views = feature?.views || ["chat", "notes"]; // fallback
-
-    res.json({
-      success: true,
-      bookId: req.params.bookId,
-      views,
-      enabled: {
-        chat: views.includes("chat"),
-        mcq: views.includes("mcq"),
-        game: views.includes("game"),
-        notes: views.includes("notes"),
-        flashcards: views.includes("flashcards"),
-        mistakes: views.includes("mistakes"),
-        paper: views.includes("paper"),
-        definitions: views.includes("definitions"),
-        summary: views.includes("summary"),
-        voice: views.includes("voice"),
-        lessionplan: views.includes("lessionplan"),
-        assignment: views.includes("assignment")
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
 });
 
 // --- Start server ---
