@@ -1,952 +1,1070 @@
-// index.js
-const express = require("express");
-const cors = require("cors");
-const jwt = require("jsonwebtoken");
-const multer = require("multer");
-const pdfParse = require("pdf-parse");
-const mongoose = require("mongoose");
-const path = require("path");
-const fs = require("fs");
+import express from "express";
+import "dotenv/config";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import "./db.js"; // Initialize MongoDB connection
+import { detectIntent } from "./intentDetector.js";
+import { getOrder } from "./orderState.js";
+import Provider from "./models/Provider.js";
+import Product from "./models/Product.js";
+import User from "./models/User.js";
+import Order from "./models/Order.js";
+import { parseProductsFromText } from "./utils/productParser.js";
+
 const app = express();
-
-app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-const upload = multer({ storage: multer.memoryStorage() });
-const JWT_SECRET = "your_secret_key";
+const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key";
 
-// --- MongoDB Connection ---
-const MONGO_URI = "mongodb+srv://varunsinghal78_db_user:xRbG512ylHcUMpfL@cluster0.mjjsjk9.mongodb.net/school?retryWrites=true&w=majority";
-mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log("MongoDB connected"))
-  .catch(err => console.error("MongoDB connection error:", err));
+// Azure OpenAI Configuration
+const AZURE_ENDPOINT = process.env.AZURE_ENDPOINT;
+const AZURE_API_KEY = process.env.AZURE_API_KEY;
+const AZURE_DEPLOYMENT = process.env.AZURE_DEPLOYMENT || "gpt-4o-2";
+const AZURE_API_VERSION = process.env.AZURE_API_VERSION || "2024-02-01";
 
-// --- Schemas ---
-const classSchema = new mongoose.Schema({ name: String }, { timestamps: true });
-const subjectSchema = new mongoose.Schema({ name: String, classId: String }, { timestamps: true });
-const bookSchema = new mongoose.Schema({ name: String, subjectId: String }, { timestamps: true });
-const chapterSchema = new mongoose.Schema({ name: String, bookId: String }, { timestamps: true });
-const chapterContentSchema = new mongoose.Schema({
-  chapterId: String,
-  content: String,
-  fileName: String,
-  size: Number,
-  extractionMethod: String,
-  qualityMetrics: Object
-}, { timestamps: true });
+if (!AZURE_ENDPOINT || !AZURE_API_KEY) {
+  console.error("Error: AZURE_ENDPOINT and AZURE_API_KEY must be set in environment variables");
+}
 
-const bookFeatureSchema = new mongoose.Schema({
-  bookId: { type: mongoose.Schema.Types.ObjectId, ref: 'Book', required: true, unique: true },
-  views: {
-    type: [String],
-    default: ["chat", "notes"],
-    enum: [
-      "chat", "mcq", "game", "notes", "flashcards",
-      "mistakes", "paper", "definitions", "summary",
-      "voice", "lessionplan", "assignment"
-    ]
-  }
-}, { timestamps: true });
-
-
-
-const ClassModel = mongoose.model("Class", classSchema);
-const SubjectModel = mongoose.model("Subject", subjectSchema);
-const BookModel = mongoose.model("Book", bookSchema);
-const ChapterModel = mongoose.model("Chapter", chapterSchema);
-const ChapterContentModel = mongoose.model("ChapterContent", chapterContentSchema);
-const BookFeatureModel = mongoose.model("BookFeature", bookFeatureSchema);
-// --- Login ---
-app.post("/free-login", (req, res) => {
-  const { email, password } = req.body;
-  if (email === "superadmin@gmail.com" && password === "Sikander") {
-    const token = jwt.sign({ email }, JWT_SECRET);
-    return res.json({ success: true, token });
-  }
-  res.status(401).json({ success: false });
-});
-
-// --- JWT middleware ---
-function verifyToken(req, res, next) {
-  const auth = req.headers.authorization || "";
-  const token = auth.split(" ")[1];
-  if (!token) return res.status(401).json({ success: false });
+// Middleware to verify JWT token
+const authenticateProvider = async (req, res, next) => {
   try {
-    req.user = jwt.verify(token, JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ success: false });
-  }
-}
-
-// --- CLASS CRUD ---
-app.post("/class/add", verifyToken, async (req, res) => {
-  const { name } = req.body;
-  if (!name) return res.status(400).json({ success: false, message: "Class name required" });
-  const cls = await ClassModel.create({ name });
-  res.json({ success: true, id: cls._id });
-});
-
-app.get("/class/list", verifyToken, async (req, res) => {
-  const classes = await ClassModel.find();
-  const result = await Promise.all(classes.map(async cls => {
-    const subjectCount = await SubjectModel.countDocuments({ classId: cls._id });
-    return { ...cls.toObject(), subjectCount };
-  }));
-  res.json({ success: true, items: result });
-});
-
-app.put("/class/edit/:id", verifyToken, async (req, res) => {
-  await ClassModel.findByIdAndUpdate(req.params.id, { name: req.body.name });
-  res.json({ success: true });
-});
-
-app.delete("/class/delete/:id", verifyToken, async (req, res) => {
-  await ClassModel.findByIdAndDelete(req.params.id);
-  res.json({ success: true });
-});
-
-// --- SUBJECT CRUD ---
-app.post("/subject/add", verifyToken, async (req, res) => {
-  const { name, classId } = req.body;
-  if (!name || !classId) return res.status(400).json({ success: false, message: "Name & classId required" });
-  const subject = await SubjectModel.create({ name, classId });
-  res.json({ success: true, id: subject._id });
-});
-
-app.get("/subject/list/:classId", verifyToken, async (req, res) => {
-  const subjects = await SubjectModel.find({ classId: req.params.classId });
-  const result = await Promise.all(subjects.map(async subj => {
-    const bookCount = await BookModel.countDocuments({ subjectId: subj._id });
-    return { ...subj.toObject(), bookCount };
-  }));
-  res.json({ success: true, items: result });
-});
-
-app.put("/subject/edit/:id", verifyToken, async (req, res) => {
-  await SubjectModel.findByIdAndUpdate(req.params.id, { name: req.body.name });
-  res.json({ success: true });
-});
-
-app.delete("/subject/delete/:id", verifyToken, async (req, res) => {
-  await SubjectModel.findByIdAndDelete(req.params.id);
-  res.json({ success: true });
-});
-
-// --- BOOK CRUD ---
-app.post("/book/add", verifyToken, async (req, res) => {
-  const { name, subjectId } = req.body;
-  if (!name || !subjectId) return res.status(400).json({ success: false, message: "Name & subjectId required" });
-  const book = await BookModel.create({ name, subjectId });
-  res.json({ success: true, id: book._id });
-});
-
-app.get("/book/list/:subjectId", verifyToken, async (req, res) => {
-  const books = await BookModel.find({ subjectId: req.params.subjectId });
-  const result = await Promise.all(books.map(async book => {
-    const chapterCount = await ChapterModel.countDocuments({ bookId: book._id });
-    return { ...book.toObject(), chapterCount };
-  }));
-  res.json({ success: true, items: result });
-});
-
-app.put("/book/edit/:id", verifyToken, async (req, res) => {
-  await BookModel.findByIdAndUpdate(req.params.id, { name: req.body.name });
-  res.json({ success: true });
-});
-
-app.delete("/book/delete/:id", verifyToken, async (req, res) => {
-  await BookModel.findByIdAndDelete(req.params.id);
-  res.json({ success: true });
-});
-
-// --- CHAPTER CRUD ---
-app.post("/chapter/add", verifyToken, async (req, res) => {
-  const { name, bookId } = req.body;
-  if (!name || !bookId) return res.status(400).json({ success: false, message: "Name & bookId required" });
-  const chapter = await ChapterModel.create({ name, bookId });
-  res.json({ success: true, id: chapter._id });
-});
-
-app.get("/chapter/list/:bookId", verifyToken, async (req, res) => {
-  const chapters = await ChapterModel.find({ bookId: req.params.bookId });
-  const result = await Promise.all(chapters.map(async chap => {
-    const pdfCount = await ChapterContentModel.countDocuments({ chapterId: chap._id });
-    return { ...chap.toObject(), pdfCount };
-  }));
-  res.json({ success: true, items: result });
-});
-
-app.put("/chapter/edit/:id", verifyToken, async (req, res) => {
-  await ChapterModel.findByIdAndUpdate(req.params.id, { name: req.body.name });
-  res.json({ success: true });
-});
-
-app.delete("/chapter/delete/:id", verifyToken, async (req, res) => {
-  await ChapterModel.findByIdAndDelete(req.params.id);
-  await ChapterContentModel.deleteMany({ chapterId: req.params.id }).catch(() => {});
-  res.json({ success: true });
-});
-
-// ============================================
-// FINAL PDF UPLOAD FUNCTION FOR RENDER.COM
-// ============================================
-// ============================================
-// DYNAMIC HINDI TEXT REPAIR SYSTEM
-// ============================================
-
-function repairHindiTextForYourPDF(text) {
-  if (!text) return "";
-  
-  console.log("🔧 Applying dynamic Hindi text repair...");
-  
-  let repaired = text;
-
-  // PHASE 1: Detect and map common dynamic patterns
-  const dynamicPatterns = detectDynamicPatterns(text);
-  
-  // PHASE 2: Apply dynamic replacements
-  Object.keys(dynamicPatterns).forEach(corrupted => {
-    const safePattern = corrupted.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(safePattern, 'g');
-    repaired = repaired.replace(regex, dynamicPatterns[corrupted]);
-  });
-
-  // PHASE 3: Apply known static patterns
-  repaired = applyStaticPatterns(repaired);
-
-  // PHASE 4: Character-level fixes
-  repaired = applyCharacterLevelFixes(repaired);
-
-  console.log(`🔧 Dynamic repair completed: ${text.length} → ${repaired.length} chars`);
-  
-  return repaired;
-}
-
-// ============================================
-// DYNAMIC PATTERN DETECTION
-// ============================================
-
-function detectDynamicPatterns(text) {
-  const patterns = {};
-  
-  // Common Hindi word endings that get corrupted
-  const commonEndings = {
-    'osQ': 'के',      // Possessive
-    'dks': 'को',      // Object marker
-    'ls': 'से',       // From/with
-    'esa': 'में',     // In
-    'dh': 'की',       // Feminine possessive
-    'dk': 'का',       // Masculine possessive
-    'gSa': 'हैं',     // Plural verb
-    'gS': 'है',       // Singular verb
-    'fd': 'कि',       // That
-    'rks': 'तो',      // Then
-    'us': 'ने',       // Subject marker (past)
-    'vkSj': 'और',     // And
-  };
-
-  // Detect these patterns in the text
-  Object.keys(commonEndings).forEach(pattern => {
-    if (text.includes(pattern)) {
-      patterns[pattern] = commonEndings[pattern];
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) {
+      return res.status(401).json({ error: "No token provided" });
     }
-  });
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const provider = await Provider.findById(decoded.id);
+    if (!provider) {
+      return res.status(401).json({ error: "Invalid token" });
+    }
+    req.provider = provider;
+    next();
+  } catch (error) {
+    return res.status(401).json({ error: "Invalid token" });
+  }
+};
 
-  // Detect corrupted verb patterns
-  const verbPatterns = [
-    { test: /[a-z]krs/g, replace: 'करते' },  // Doing
-    { test: /[a-z]krh/g, replace: 'करती' },  // Doing (fem)
-    { test: /[a-z]k jgs/g, replace: 'क जा रहे' }, // Continuous tense
-    { test: /[a-z]k fnk/g, replace: 'क दिया' },   // Gave
-  ];
+// ========== PROVIDER ENDPOINTS ==========
 
-  verbPatterns.forEach(({ test, replace }) => {
-    if (test.test(text)) {
-      const matches = text.match(test);
-      if (matches) {
-        matches.forEach(match => {
-          patterns[match] = replace;
+// Generate unique chatbotId
+async function generateUniqueChatbotId(baseName = null) {
+  let chatbotId;
+  let isUnique = false;
+  let attempts = 0;
+  const maxAttempts = 10;
+
+  while (!isUnique && attempts < maxAttempts) {
+    if (baseName) {
+      // Try base name first, then add random suffix if needed
+      const suffix = attempts > 0 ? `-${Math.random().toString(36).substr(2, 4)}` : '';
+      chatbotId = `${baseName.toLowerCase().replace(/[^a-z0-9]/g, '')}${suffix}`;
+    } else {
+      // Generate random chatbotId
+      chatbotId = `bot-${Math.random().toString(36).substr(2, 8)}`;
+    }
+
+    const existing = await Provider.findOne({ chatbotId });
+    if (!existing) {
+      isUnique = true;
+    }
+    attempts++;
+  }
+
+  if (!isUnique) {
+    // Fallback: use timestamp + random
+    chatbotId = `bot-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+  }
+
+  return chatbotId;
+}
+
+// Provider Registration
+app.post("/api/provider/register", async (req, res) => {
+  try {
+    const { name, email, password, chatbotId: requestedChatbotId } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: "Name, email, and password are required" });
+    }
+
+    // Check if email already exists
+    const existingEmail = await Provider.findOne({ email });
+    if (existingEmail) {
+      return res.status(400).json({ error: "Email already exists" });
+    }
+
+    // Generate or validate chatbotId
+    let finalChatbotId;
+    if (requestedChatbotId) {
+      // Check if requested chatbotId is available
+      const existingChatbotId = await Provider.findOne({ chatbotId: requestedChatbotId });
+      if (existingChatbotId) {
+        return res.status(400).json({ error: "Chatbot ID already taken. Please choose another." });
+      }
+      finalChatbotId = requestedChatbotId.toLowerCase().replace(/[^a-z0-9-]/g, '');
+    } else {
+      // Auto-generate unique chatbotId based on provider name
+      finalChatbotId = await generateUniqueChatbotId(name);
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create provider
+    const provider = new Provider({
+      name,
+      email,
+      password: hashedPassword,
+      chatbotId: finalChatbotId,
+    });
+
+    await provider.save();
+
+    // Generate JWT token
+    const token = jwt.sign({ id: provider._id }, JWT_SECRET);
+
+    res.status(201).json({
+      message: "Provider registered successfully",
+      token,
+      provider: {
+        id: provider._id,
+        name: provider.name,
+        email: provider.email,
+        chatbotId: provider.chatbotId,
+      },
+    });
+  } catch (error) {
+    console.error("Provider registration error:", error);
+    res.status(500).json({ error: "Failed to register provider", details: error.message });
+  }
+});
+
+// Provider Login
+app.post("/api/provider/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required" });
+    }
+
+    const provider = await Provider.findOne({ email });
+    if (!provider) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, provider.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    const token = jwt.sign({ id: provider._id }, JWT_SECRET);
+
+    res.json({
+      message: "Login successful",
+      token,
+      provider: {
+        id: provider._id,
+        name: provider.name,
+        email: provider.email,
+        chatbotId: provider.chatbotId,
+      },
+    });
+  } catch (error) {
+    console.error("Provider login error:", error);
+    res.status(500).json({ error: "Failed to login", details: error.message });
+  }
+});
+
+// ========== PRODUCT ENDPOINTS ==========
+
+// Add Product (Provider only)
+app.post("/api/products", authenticateProvider, async (req, res) => {
+  try {
+    const { name, description, price, stock } = req.body;
+
+    if (!name || price === undefined) {
+      return res.status(400).json({ error: "Name and price are required" });
+    }
+
+    const product = new Product({
+      providerId: req.provider._id,
+      name,
+      description,
+      price: Number(price),
+      stock: stock ? Number(stock) : 0,
+    });
+
+    await product.save();
+
+    res.status(201).json({
+      message: "Product added successfully",
+      product,
+    });
+  } catch (error) {
+    console.error("Add product error:", error);
+    res.status(500).json({ error: "Failed to add product", details: error.message });
+  }
+});
+
+// ========== PUBLIC ENDPOINTS ==========
+
+// List all available chatbots
+app.get("/api/chatbots", async (req, res) => {
+  try {
+    const providers = await Provider.find({}, "name chatbotId createdAt").sort({ createdAt: -1 });
+    
+    const chatbots = providers.map(p => ({
+      chatbotId: p.chatbotId,
+      name: p.name,
+      createdAt: p.createdAt,
+    }));
+
+    res.json({
+      chatbots,
+      count: chatbots.length,
+    });
+  } catch (error) {
+    console.error("Get chatbots error:", error);
+    res.status(500).json({ error: "Failed to get chatbots", details: error.message });
+  }
+});
+
+// Get Products by Provider (Public - for chatbot)
+app.get("/api/products/:chatbotId", async (req, res) => {
+  try {
+    const { chatbotId } = req.params;
+    const provider = await Provider.findOne({ chatbotId });
+
+    if (!provider) {
+      return res.status(404).json({ error: "Chatbot not found" });
+    }
+
+    const products = await Product.find({ providerId: provider._id });
+
+    res.json({ 
+      chatbotId,
+      providerName: provider.name,
+      products 
+    });
+  } catch (error) {
+    console.error("Get products error:", error);
+    res.status(500).json({ error: "Failed to get products", details: error.message });
+  }
+});
+
+// Get My Products (Provider only)
+app.get("/api/provider/products", authenticateProvider, async (req, res) => {
+  try {
+    const products = await Product.find({ providerId: req.provider._id });
+    res.json({ products });
+  } catch (error) {
+    console.error("Get my products error:", error);
+    res.status(500).json({ error: "Failed to get products", details: error.message });
+  }
+});
+
+// Bulk Import Products from Text (Provider only)
+app.post("/api/products/bulk-import", authenticateProvider, async (req, res) => {
+  try {
+    const { text } = req.body;
+
+    if (!text || typeof text !== "string") {
+      return res.status(400).json({ error: "Text is required" });
+    }
+
+    // Parse products from text
+    const parsedProducts = parseProductsFromText(text);
+
+    if (parsedProducts.length === 0) {
+      return res.status(400).json({ 
+        error: "No products found in text. Please ensure format is: Product Name\n$Price" 
+      });
+    }
+
+    // Save products to database
+    const savedProducts = [];
+    const errors = [];
+
+    for (const productData of parsedProducts) {
+      try {
+        // Check if product already exists
+        const existingProduct = await Product.findOne({
+          providerId: req.provider._id,
+          name: productData.name,
+        });
+
+        if (existingProduct) {
+          // Update existing product price
+          existingProduct.price = productData.price;
+          if (productData.description) {
+            existingProduct.description = productData.description;
+          }
+          await existingProduct.save();
+          savedProducts.push({ ...existingProduct.toObject(), action: "updated" });
+        } else {
+          // Create new product
+          const product = new Product({
+            providerId: req.provider._id,
+            name: productData.name,
+            description: productData.description || "",
+            price: productData.price,
+            stock: 0,
+          });
+          await product.save();
+          savedProducts.push({ ...product.toObject(), action: "created" });
+        }
+      } catch (err) {
+        errors.push({
+          product: productData.name,
+          error: err.message,
         });
       }
     }
-  });
 
-  console.log(`🎯 Detected ${Object.keys(patterns).length} dynamic patterns`);
-  return patterns;
-}
-
-// ============================================
-// STATIC PATTERN REPLACEMENTS
-// ============================================
-
-function applyStaticPatterns(text) {
-  let repaired = text;
-  
-  const staticPatterns = {
-    // File headers and common corruptions
-    'fganh&6': 'हिंदी',
-    'tkno': 'जादव',
-    'eksykbZ': 'पायेंगे',
-    'eSu': 'मैन',
-    'bafM': 'इंडिया',
-    'iQkWjsLV': 'फॉरेस्ट',
-    
-    // Remove corruption markers
-    '^': '',
-    '~': '',
-    '&': '',
-    '`': '',
-    ';': '',
-  };
-
-  Object.keys(staticPatterns).forEach(pattern => {
-    const safePattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(safePattern, 'g');
-    repaired = repaired.replace(regex, staticPatterns[pattern]);
-  });
-
-  return repaired;
-}
-
-// ============================================
-// CHARACTER-LEVEL FIXES
-// ============================================
-
-function applyCharacterLevelFixes(text) {
-  return text
-    // Fix common character corruptions
-    .replace(/kS/g, 'क्')
-    .replace(/kZ/g, 'क्')
-    .replace(/±/g, '्')
-    .replace(/S/g, '्')
-    .replace(/Z/g, '्')
-    
-    // Fix spacing issues
-    .replace(/([\u0900-\u0963])\s+([\u093E-\u094F])/g, '$1$2')
-    .replace(/([\u093E-\u094F])\s+([\u0900-\u0963])/g, '$1$2')
-    
-    // Clean up
-    .replace(/Ã/g, '')
-    .replace(/÷/g, '')
-    .replace(/×/g, '');
-}
-
-// ============================================
-// ENHANCED UPLOAD FUNCTION WITH SMART DETECTION
-// ============================================
-
-app.post("/upload/pdf", verifyToken, upload.single("file"), async (req, res) => {
-  try {
-    const { chapterId } = req.body;
-    if (!chapterId || !req.file) {
-      return res.status(400).json({ success: false, message: "chapterId & file required" });
-    }
-
-    console.log("🔄 Processing PDF with dynamic Hindi repair...");
-
-    // Verify chapter exists
-    const chapterExists = await ChapterModel.findById(chapterId);
-    if (!chapterExists) {
-      return res.status(404).json({ success: false, message: "Chapter not found" });
-    }
-
-    let pdfData;
-    try {
-      pdfData = await pdfParse(req.file.buffer);
-      console.log(`📊 PDF parsed: ${pdfData.numpages} pages`);
-    } catch (parseError) {
-      return res.status(400).json({ success: false, message: "Invalid PDF file" });
-    }
-
-    // Extract text
-    let extractedText = (pdfData.text || "").trim();
-    console.log(`📝 Extracted: ${extractedText.length} chars`);
-
-    let finalText = "";
-    let extractionMethod = "direct";
-    let repairStats = {};
-
-    if (extractedText.length > 50) {
-      // Analyze the corruption level
-      const corruptionAnalysis = analyzeCorruption(extractedText);
-      console.log(`🔍 Corruption analysis:`, corruptionAnalysis);
-      
-      // Apply dynamic repair
-      finalText = repairHindiTextForYourPDF(extractedText);
-      extractionMethod = "dynamic_repair";
-      repairStats = corruptionAnalysis;
-    } else {
-      finalText = extractedText;
-      extractionMethod = "minimal_text";
-    }
-
-    // Calculate final metrics
-    const hindiCharCount = (finalText.match(/[\u0900-\u097F]/g) || []).length;
-    const totalChars = finalText.length;
-    const hindiPercentage = totalChars > 0 ? Math.round((hindiCharCount / totalChars) * 100) : 0;
-
-    console.log(`📈 Final: ${totalChars} chars, ${hindiPercentage}% Hindi`);
-
-    // Save to database
-    try {
-      const contentData = {
-        chapterId: chapterId,
-        content: finalText,
-        fileName: req.file.originalname,
-        size: req.file.size,
-        extractionMethod: extractionMethod,
-        qualityMetrics: {
-          totalChars,
-          hindiChars: hindiCharCount,
-          hindiPercentage,
-          pages: pdfData.numpages,
-          repairStats: repairStats
-        }
-      };
-
-      await ChapterContentModel.findOneAndUpdate(
-        { chapterId: chapterId },
-        contentData,
-        { upsert: true, new: true }
-      );
-
-      console.log("✅ Content saved to database");
-
-    } catch (dbError) {
-      console.error("Database error:", dbError);
-      return res.status(500).json({ 
-        success: false, 
-        message: "Failed to save to database" 
-      });
-    }
-
-    res.json({ 
-      success: true, 
-      message: "PDF processed with dynamic Hindi repair",
-      extractionMethod,
-      stats: {
-        totalLength: finalText.length,
-        pages: pdfData.numpages,
-        hindiChars: hindiCharCount,
-        hindiPercentage: hindiPercentage,
-        repairStats: repairStats
-      }
-    });
-    
-  } catch (err) {
-    console.error("Upload error:", err);
-    res.status(500).json({ 
-      success: false, 
-      message: `Upload failed: ${err.message}` 
-    });
-  }
-});
-
-// ============================================
-// CORRUPTION ANALYSIS FUNCTION
-// ============================================
-
-function analyzeCorruption(text) {
-  const commonPatterns = [
-    'osQ', 'dks', 'ls', 'esa', 'dh', 'dk', 'gSa', 'gS', 'fd', 'rks', 'us', 'vkSj'
-  ];
-  
-  let detectedPatterns = [];
-  let patternCount = 0;
-  
-  commonPatterns.forEach(pattern => {
-    if (text.includes(pattern)) {
-      detectedPatterns.push(pattern);
-      patternCount += (text.match(new RegExp(pattern, 'g')) || []).length;
-    }
-  });
-
-  const hindiChars = (text.match(/[\u0900-\u097F]/g) || []).length;
-  const totalChars = text.length;
-  const hindiRatio = totalChars > 0 ? hindiChars / totalChars : 0;
-
-  return {
-    detectedPatterns,
-    patternCount,
-    totalPatterns: commonPatterns.length,
-    hindiChars,
-    totalChars,
-    hindiRatio: Math.round(hindiRatio * 100),
-    corruptionLevel: patternCount > 10 ? 'high' : patternCount > 5 ? 'medium' : 'low'
-  };
-}
-
-// ============================================
-// SPECIALIZED HINDI TEXT REPAIR FOR YOUR PDF
-// ============================================
-// ============================================
-// SPECIALIZED HINDI TEXT REPAIR FOR YOUR PDF
-// ============================================
-
-
-// ============================================
-// CLEANING FUNCTION
-// ============================================
-function cleanHindiText(text) {
-  if (!text) return "";
-  
-  return text
-    // Remove common PDF artifacts
-    .replace(/��/g, '')
-    .replace(/\uFFFD/g, '')
-    .replace(/\u0000/g, '')
-    
-    // Clean whitespace
-    .replace(/[ \t]{2,}/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n[ \t]+/g, '\n')
-    
-    // Fix common spacing issues
-    .replace(/([\u0900-\u0963])\s+([\u093E-\u094F])/g, '$1$2')
-    .replace(/([\u093E-\u094F])\s+([\u0900-\u0963])/g, '$1$2')
-    
-    // Normalize Unicode
-    .normalize("NFC")
-    
-    // Final cleaning
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line.length > 0)
-    .join('\n')
-    .trim();
-}
-
-// ============================================
-// DEBUG ENDPOINTS
-// ============================================
-app.get("/debug/db-check", async (req, res) => {
-  try {
-    const totalChapters = await ChapterModel.countDocuments();
-    const totalContent = await ChapterContentModel.countDocuments();
-    const allContent = await ChapterContentModel.find().select('chapterId fileName content extractionMethod createdAt');
-    
-    const contentSummary = allContent.map(item => ({
-      chapterId: item.chapterId,
-      fileName: item.fileName,
-      contentLength: item.content?.length || 0,
-      extractionMethod: item.extractionMethod,
-      createdAt: item.createdAt
-    }));
-
-    res.json({
-      success: true,
-      database: {
-        totalChapters,
-        totalContent,
-        contentSummary
-      }
+    res.status(201).json({
+      message: `Successfully imported ${savedProducts.length} products`,
+      total: parsedProducts.length,
+      saved: savedProducts.length,
+      errors: errors.length,
+      products: savedProducts,
+      errorsList: errors,
     });
   } catch (error) {
-    console.error("Debug DB check error:", error);
-    res.status(500).json({ success: false, message: error.message });
+    console.error("Bulk import error:", error);
+    res.status(500).json({ error: "Failed to import products", details: error.message });
   }
 });
 
-
-app.post("/chapter/content/direct", verifyToken, async (req, res) => {
+// Bulk Add Products (Array format - Provider only)
+app.post("/api/products/bulk", authenticateProvider, async (req, res) => {
   try {
-    const { chapterId, content, fileName } = req.body;
+    const { products } = req.body;
 
-    // Required fields
-    if (!chapterId || content === undefined) {
-      return res.status(400).json({
-        success: false,
-        message: "chapterId and content are required",
+    if (!Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ error: "Products array is required" });
+    }
+
+    const savedProducts = [];
+    const errors = [];
+
+    for (const productData of products) {
+      try {
+        if (!productData.name || productData.price === undefined) {
+          errors.push({
+            product: productData.name || "Unknown",
+            error: "Name and price are required",
+          });
+          continue;
+        }
+
+        // Check if product already exists
+        const existingProduct = await Product.findOne({
+          providerId: req.provider._id,
+          name: productData.name,
+        });
+
+        if (existingProduct) {
+          existingProduct.price = Number(productData.price);
+          if (productData.description) {
+            existingProduct.description = productData.description;
+          }
+          if (productData.stock !== undefined) {
+            existingProduct.stock = Number(productData.stock);
+          }
+          await existingProduct.save();
+          savedProducts.push({ ...existingProduct.toObject(), action: "updated" });
+        } else {
+          const product = new Product({
+            providerId: req.provider._id,
+            name: productData.name,
+            description: productData.description || "",
+            price: Number(productData.price),
+            stock: productData.stock ? Number(productData.stock) : 0,
+          });
+          await product.save();
+          savedProducts.push({ ...product.toObject(), action: "created" });
+        }
+      } catch (err) {
+        errors.push({
+          product: productData.name || "Unknown",
+          error: err.message,
+        });
+      }
+    }
+
+    res.status(201).json({
+      message: `Successfully processed ${savedProducts.length} products`,
+      total: products.length,
+      saved: savedProducts.length,
+      errors: errors.length,
+      products: savedProducts,
+      errorsList: errors,
+    });
+  } catch (error) {
+    console.error("Bulk add error:", error);
+    res.status(500).json({ error: "Failed to add products", details: error.message });
+  }
+});
+
+// ========== CHAT ENDPOINT (Provider-specific) ==========
+
+app.post("/chat/:chatbotId", async (req, res) => {
+  try {
+    const { chatbotId } = req.params;
+    const { message, sessionId } = req.body;
+
+    if (!message || typeof message !== "string") {
+      return res.status(400).json({ error: "Message is required and must be a string" });
+    }
+
+    // Verify provider exists
+    const provider = await Provider.findOne({ chatbotId });
+    if (!provider) {
+      return res.status(404).json({ error: "Chatbot not found" });
+    }
+
+    // Get or create user
+    const uniqueSessionId = `${chatbotId}_${sessionId || "default"}`;
+    const order = getOrder(uniqueSessionId);
+
+    // Get products for this provider
+    const products = await Product.find({ providerId: provider._id });
+
+    // USER REGISTRATION FLOW
+    if (order.step === "ask_name") {
+      order.name = message;
+      order.step = "ask_mobile";
+      return res.json({
+        reply: `Nice to meet you, ${order.name}! What's your mobile number?`,
       });
     }
 
-    if (typeof content !== "string" || content.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "content must be a non-empty string",
+    if (order.step === "ask_mobile") {
+      order.mobile = message;
+      order.isNewUser = false;
+      order.step = null;
+
+      // Save user to MongoDB
+      try {
+        let user = await User.findOne({ mobile: message, chatbotId });
+        if (!user) {
+          user = new User({
+            name: order.name,
+            mobile: message,
+            chatbotId,
+          });
+          await user.save();
+        }
+        order.userId = user._id.toString();
+      } catch (err) {
+        console.error("Error saving user:", err);
+      }
+
+      return res.json({
+        reply: `Thanks ${order.name}! How can I help you today?`,
       });
     }
 
-    // Validate chapter exists
-    const chapter = await ChapterModel.findById(chapterId);
-    if (!chapter) {
-      return res.status(404).json({
-        success: false,
-        message: "Chapter not found",
+    // Check if new user
+    if (order.isNewUser && !order.name && !order.step) {
+      order.step = "ask_name";
+      order.chatbotId = chatbotId;
+      return res.json({
+        reply: "Welcome! You are a new user. What's your name?",
       });
     }
 
-    const cleanContent = cleanHindiText(content.trim());
+    // Hardcoded COD check
+    if (message.toLowerCase().includes("cod") && !order.step) {
+      return res.json({
+        reply: "Yes, Cash on Delivery is available.",
+      });
+    }
 
-    // Auto-generate fileName if not provided
-    const displayFileName = fileName?.trim()
-      ? fileName.trim()
-      : `Manual Text - ${new Date().toLocaleDateString("en-IN")}`;
+    // ORDER FLOW
+    const { intent, entities } = await detectIntent(message);
 
-    const hindiChars = (cleanContent.match(/[\u0900-\u097F]/g) || []).length;
-    const totalChars = cleanContent.length;
-    const hindiPercentage = totalChars > 0 ? Math.round((hindiChars / totalChars) * 100) : 0;
+    console.log("INTENT:", intent, entities);
 
-    const contentData = {
-      chapterId,
-      content: cleanContent,
-      fileName: displayFileName,
-      size: Buffer.byteLength(cleanContent, "utf8"),
-      extractionMethod: "direct_text",
-      qualityMetrics: {
-        totalChars,
-        hindiChars,
-        hindiPercentage,
-        pages: null,
-        source: "manual_entry",
-        uploadedAt: new Date(),
+    // Browse products
+    if (intent === "browse_products") {
+      if (products.length === 0) {
+        return res.json({ reply: "No products available at the moment." });
+      }
+      const productList = products.map((p) => `${p.name} - ₹${p.price}`).join("\n");
+      return res.json({ reply: `Here are our products:\n${productList}` });
+    }
+
+    // Start order
+    if (intent === "place_order" && !order.step) {
+      if (products.length === 0) {
+        return res.json({ reply: "No products available at the moment." });
+      }
+      const productList = products.map((p) => `${p.name} - ₹${p.price}`).join("\n");
+      order.step = "ask_product";
+      order.providerId = provider._id.toString();
+      return res.json({
+        reply: `Sure 👍 Here are our products:\n${productList}\n\nWhat product would you like to order?`,
+      });
+    }
+
+    // Ask product
+    if (order.step === "ask_product") {
+      // Find product by name
+      const selectedProduct = products.find(
+        (p) => p.name.toLowerCase().includes(message.toLowerCase()) || message.toLowerCase().includes(p.name.toLowerCase())
+      );
+
+      if (!selectedProduct) {
+        return res.json({
+          reply: "Product not found. Please choose from the available products.",
+        });
+      }
+
+      order.productId = selectedProduct._id.toString();
+      order.productName = selectedProduct.name;
+      order.productPrice = selectedProduct.price;
+      order.step = "ask_quantity";
+      return res.json({
+        reply: `Great choice! ${selectedProduct.name} - ₹${selectedProduct.price}\nHow many do you want?`,
+      });
+    }
+
+    // Ask quantity
+    if (order.step === "ask_quantity") {
+      const quantity = parseInt(message);
+      if (isNaN(quantity) || quantity <= 0) {
+        return res.json({
+          reply: "Please enter a valid quantity (number greater than 0).",
+        });
+      }
+      order.quantity = quantity;
+      order.step = "ask_address";
+      const total = order.productPrice * quantity;
+      return res.json({
+        reply: `Total: ₹${total}\nPlease provide your delivery address:`,
+      });
+    }
+
+    // Ask address
+    if (order.step === "ask_address") {
+      order.address = message;
+      order.step = "ask_payment";
+      return res.json({
+        reply: `Address saved: ${message}\n\nPlease choose payment method: Online or COD`,
+      });
+    }
+
+    // Ask payment
+    if (order.step === "ask_payment") {
+      order.paymentMethod = message.toLowerCase();
+
+      if (order.paymentMethod.includes("online")) {
+        // Create order with payment_pending status
+        try {
+          const totalAmount = order.productPrice * order.quantity;
+          const orderId = `ORD${Date.now()}${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+          const paymentLink = `${process.env.BASE_URL || "http://localhost:3000"}/api/payment/${orderId}`;
+
+          const newOrder = new Order({
+            orderId,
+            userId: order.userId,
+            providerId: order.providerId,
+            productId: order.productId,
+            productName: order.productName,
+            quantity: order.quantity,
+            price: order.productPrice,
+            totalAmount,
+            paymentMethod: "Online",
+            address: order.address,
+            paymentLink,
+            status: "payment_pending",
+          });
+
+          await newOrder.save();
+          order.orderId = orderId;
+
+          // Log order creation for provider
+          console.log(`📦 NEW ORDER RECEIVED - Provider: ${provider.name} (${provider.chatbotId})`);
+          console.log(`   Order ID: ${orderId}, Status: payment_pending, Amount: ₹${totalAmount}`);
+
+          order.step = "payment_pending";
+          return res.json({
+            reply: `✅ Order created!\nOrder ID: ${orderId}\nTotal: ₹${totalAmount}\n\n🔗 Payment Link: ${paymentLink}\n\nPlease complete the payment to confirm your order.`,
+          });
+        } catch (err) {
+          console.error("Error saving order:", err);
+          return res.json({
+            reply: "Sorry, there was an error creating your order. Please try again.",
+          });
+        }
+      }
+
+      if (order.paymentMethod.includes("cod")) {
+        // Save COD order to MongoDB
+        try {
+          const totalAmount = order.productPrice * order.quantity;
+          const orderId = `ORD${Date.now()}${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+
+          const newOrder = new Order({
+            orderId,
+            userId: order.userId,
+            providerId: order.providerId,
+            productId: order.productId,
+            productName: order.productName,
+            quantity: order.quantity,
+            price: order.productPrice,
+            totalAmount,
+            paymentMethod: "COD",
+            address: order.address,
+            status: "confirmed",
+          });
+
+          await newOrder.save();
+          order.orderId = orderId;
+          order.step = "confirmed";
+
+          // Log order creation for provider
+          console.log(`📦 NEW ORDER RECEIVED - Provider: ${provider.name} (${provider.chatbotId})`);
+          console.log(`   Order ID: ${orderId}, Status: confirmed, Amount: ₹${totalAmount}`);
+          console.log(`   Customer: ${order.name} (${order.mobile}), Product: ${order.productName} x${order.quantity}`);
+
+          // Reset order state
+          setTimeout(() => {
+            order.step = null;
+            order.productId = null;
+            order.productName = null;
+            order.productPrice = null;
+            order.quantity = null;
+            order.paymentMethod = null;
+            order.address = null;
+          }, 1000);
+
+          return res.json({
+            reply: `✅ Order confirmed!\n\nOrder ID: ${orderId}\nName: ${order.name}\nMobile: ${order.mobile}\nProduct: ${order.productName}\nQuantity: ${order.quantity}\nTotal: ₹${totalAmount}\nAddress: ${order.address}\nPayment: Cash on Delivery\n\nYour order will be delivered soon!`,
+          });
+        } catch (err) {
+          console.error("Error saving order:", err);
+          return res.json({
+            reply: "Sorry, there was an error saving your order. Please try again.",
+          });
+        }
+      }
+    }
+
+    // Order status check
+    if (intent === "order_status") {
+      // Check if message contains order ID
+      const orderIdMatch = message.match(/ORD[A-Z0-9]+/i);
+      if (orderIdMatch) {
+        const orderId = orderIdMatch[0].toUpperCase();
+        try {
+          const foundOrder = await Order.findOne({ orderId, userId: order.userId })
+            .populate("productId", "name price");
+
+          if (!foundOrder) {
+            return res.json({
+              reply: `Order ${orderId} not found. Please check your order ID.`,
+            });
+          }
+
+          const statusEmoji = {
+            pending: "⏳",
+            confirmed: "✅",
+            payment_pending: "💳",
+            paid: "✅",
+            completed: "🎉",
+            cancelled: "❌",
+          };
+
+          return res.json({
+            reply: `📦 Order Details:\n\nOrder ID: ${foundOrder.orderId}\nProduct: ${foundOrder.productName}\nQuantity: ${foundOrder.quantity}\nTotal: ₹${foundOrder.totalAmount}\nStatus: ${statusEmoji[foundOrder.status] || ""} ${foundOrder.status.toUpperCase()}\nPayment: ${foundOrder.paymentMethod}\nDate: ${new Date(foundOrder.createdAt).toLocaleString()}`,
+          });
+        } catch (err) {
+          console.error("Error fetching order:", err);
+          return res.json({
+            reply: "Sorry, there was an error fetching your order details.",
+          });
+        }
+      } else {
+        // Show recent orders
+        try {
+          const recentOrders = await Order.find({ userId: order.userId })
+            .sort({ createdAt: -1 })
+            .limit(5)
+            .populate("productId", "name");
+
+          if (recentOrders.length === 0) {
+            return res.json({
+              reply: "You don't have any orders yet. Would you like to place an order?",
+            });
+          }
+
+          const ordersList = recentOrders
+            .map((o) => `${o.orderId} - ${o.productName} - ₹${o.totalAmount} (${o.status})`)
+            .join("\n");
+
+          return res.json({
+            reply: `Your recent orders:\n\n${ordersList}\n\nPlease share your Order ID (e.g., ORD12345) to check details.`,
+          });
+        } catch (err) {
+          return res.json({
+            reply: "Please share your Order ID to check order status.",
+          });
+        }
+      }
+    }
+
+    // Cancel order
+    if (intent === "cancel_order" || message.toLowerCase().includes("cancel order")) {
+      const orderIdMatch = message.match(/ORD[A-Z0-9]+/i);
+      if (orderIdMatch) {
+        const orderId = orderIdMatch[0].toUpperCase();
+        try {
+          const foundOrder = await Order.findOne({ orderId, userId: order.userId });
+
+          if (!foundOrder) {
+            return res.json({
+              reply: `Order ${orderId} not found.`,
+            });
+          }
+
+          if (["completed", "cancelled"].includes(foundOrder.status)) {
+            return res.json({
+              reply: `Order ${orderId} cannot be cancelled. Status: ${foundOrder.status}`,
+            });
+          }
+
+          foundOrder.status = "cancelled";
+          foundOrder.updatedAt = new Date();
+          await foundOrder.save();
+
+          return res.json({
+            reply: `✅ Order ${orderId} has been cancelled successfully.`,
+          });
+        } catch (err) {
+          console.error("Error cancelling order:", err);
+          return res.json({
+            reply: "Sorry, there was an error cancelling your order.",
+          });
+        }
+      } else {
+        return res.json({
+          reply: "Please provide your Order ID to cancel (e.g., cancel ORD12345)",
+        });
+      }
+    }
+
+    return res.json({ reply: "How can I help you?" });
+  } catch (error) {
+    console.error("Error in chat endpoint:", error);
+    return res.status(500).json({
+      error: "Failed to process request",
+      details: error.message,
+    });
+  }
+});
+
+// ========== PAYMENT ENDPOINTS ==========
+
+// Payment confirmation endpoint
+app.post("/api/payment/:orderId", async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { paymentId, status } = req.body;
+
+    const order = await Order.findOne({ orderId });
+
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+
+    if (order.status === "paid" || order.status === "completed") {
+      return res.json({ message: "Order already paid", order });
+    }
+
+    if (status === "success" || status === "paid") {
+      order.status = "paid";
+      order.paymentId = paymentId || `PAY${Date.now()}`;
+      order.updatedAt = new Date();
+      await order.save();
+
+      return res.json({
+        message: "Payment confirmed successfully",
+        order: {
+          orderId: order.orderId,
+          status: order.status,
+          totalAmount: order.totalAmount,
+        },
+      });
+    } else {
+      return res.status(400).json({ error: "Payment failed" });
+    }
+  } catch (error) {
+    console.error("Payment confirmation error:", error);
+    res.status(500).json({ error: "Failed to confirm payment", details: error.message });
+  }
+});
+
+// Get payment link for order
+app.get("/api/payment/:orderId", async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = await Order.findOne({ orderId });
+
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+
+    if (order.paymentMethod !== "Online") {
+      return res.status(400).json({ error: "This order is not an online payment order" });
+    }
+
+    res.json({
+      orderId: order.orderId,
+      totalAmount: order.totalAmount,
+      paymentLink: order.paymentLink,
+      status: order.status,
+    });
+  } catch (error) {
+    console.error("Get payment link error:", error);
+    res.status(500).json({ error: "Failed to get payment link", details: error.message });
+  }
+});
+
+// ========== ORDER MANAGEMENT ==========
+
+// Get order by ID
+app.get("/api/orders/:orderId", async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = await Order.findOne({ orderId })
+      .populate("userId", "name mobile")
+      .populate("productId", "name price description")
+      .populate("providerId", "name chatbotId");
+
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+
+    res.json({ order });
+  } catch (error) {
+    console.error("Get order error:", error);
+    res.status(500).json({ error: "Failed to get order", details: error.message });
+  }
+});
+
+// Get order history for user
+app.get("/api/orders/:chatbotId/:mobile", async (req, res) => {
+  try {
+    const { chatbotId, mobile } = req.params;
+    const provider = await Provider.findOne({ chatbotId });
+    if (!provider) {
+      return res.status(404).json({ error: "Chatbot not found" });
+    }
+
+    const user = await User.findOne({ mobile, chatbotId });
+    if (!user) {
+      return res.json({ orders: [] });
+    }
+
+    const orders = await Order.find({ userId: user._id, providerId: provider._id })
+      .sort({ createdAt: -1 })
+      .populate("productId", "name price");
+
+    res.json({ orders });
+  } catch (error) {
+    console.error("Get order history error:", error);
+    res.status(500).json({ error: "Failed to get order history", details: error.message });
+  }
+});
+
+// Get all orders for provider
+app.get("/api/provider/orders", authenticateProvider, async (req, res) => {
+  try {
+    const { status, limit, page } = req.query;
+    const query = { providerId: req.provider._id };
+    if (status) {
+      query.status = status;
+    }
+
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 50;
+    const skip = (pageNum - 1) * limitNum;
+
+    const orders = await Order.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum)
+      .populate("userId", "name mobile")
+      .populate("productId", "name price");
+
+    const total = await Order.countDocuments(query);
+
+    res.json({
+      orders,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum),
       },
+    });
+  } catch (error) {
+    console.error("Get provider orders error:", error);
+    res.status(500).json({ error: "Failed to get orders", details: error.message });
+  }
+});
+
+// Get order statistics for provider
+app.get("/api/provider/orders/stats", authenticateProvider, async (req, res) => {
+  try {
+    const providerId = req.provider._id;
+
+    const stats = await Order.aggregate([
+      { $match: { providerId: providerId } },
+      {
+        $group: {
+          _id: "$status",
+          count: { $sum: 1 },
+          totalAmount: { $sum: "$totalAmount" },
+        },
+      },
+    ]);
+
+    const totalOrders = await Order.countDocuments({ providerId });
+    const totalRevenue = await Order.aggregate([
+      { $match: { providerId, status: { $in: ["paid", "completed", "confirmed"] } } },
+      { $group: { _id: null, total: { $sum: "$totalAmount" } } },
+    ]);
+
+    const recentOrders = await Order.find({ providerId })
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .populate("userId", "name mobile")
+      .populate("productId", "name");
+
+    const statusCounts = {
+      pending: 0,
+      confirmed: 0,
+      payment_pending: 0,
+      paid: 0,
+      completed: 0,
+      cancelled: 0,
     };
 
-    await ChapterContentModel.findOneAndUpdate(
-      { chapterId },
-      contentData,
-      { upsert: true, new: true }
-    );
-
-    console.log(`Direct text saved → Chapter: ${chapterId} | ${totalChars} chars | ${hindiPercentage}% Hindi`);
+    stats.forEach((stat) => {
+      statusCounts[stat._id] = stat.count;
+    });
 
     res.json({
-      success: true,
-      message: "Chapter content saved successfully (direct text)",
-      extractionMethod: "direct_text",
-      fileName: displayFileName,
-      stats: {
-        totalLength: totalChars,
-        hindiChars,
-        hindiPercentage,
-      },
+      totalOrders,
+      totalRevenue: totalRevenue[0]?.total || 0,
+      statusCounts,
+      recentOrders,
     });
   } catch (error) {
-    console.error("Direct text upload failed:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+    console.error("Get order stats error:", error);
+    res.status(500).json({ error: "Failed to get order statistics", details: error.message });
   }
 });
 
-app.get("/debug/content/:chapterId", async (req, res) => {
+// Get new/pending orders for provider (for notifications)
+app.get("/api/provider/orders/new", authenticateProvider, async (req, res) => {
   try {
-    const content = await ChapterContentModel.findOne({ chapterId: req.params.chapterId });
-    
-    if (!content) {
-      return res.json({
-        success: true,
-        content: null,
-        message: "No content found for this chapter"
-      });
+    const orders = await Order.find({
+      providerId: req.provider._id,
+      status: { $in: ["pending", "confirmed", "payment_pending", "paid"] },
+    })
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .populate("userId", "name mobile")
+      .populate("productId", "name price");
+
+    res.json({ orders, count: orders.length });
+  } catch (error) {
+    console.error("Get new orders error:", error);
+    res.status(500).json({ error: "Failed to get new orders", details: error.message });
+  }
+});
+
+// Update order status (Provider only)
+app.patch("/api/provider/orders/:orderId", authenticateProvider, async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { status } = req.body;
+
+    const order = await Order.findOne({ orderId, providerId: req.provider._id });
+
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
     }
-    
+
+    const validStatuses = ["pending", "confirmed", "payment_pending", "paid", "completed", "cancelled"];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ error: "Invalid status" });
+    }
+
+    order.status = status;
+    order.updatedAt = new Date();
+    await order.save();
+
     res.json({
-      success: true,
-      content: {
-        chapterId: content.chapterId,
-        content: content.content,
-        fileName: content.fileName,
-        extractionMethod: content.extractionMethod,
-        contentLength: content.content.length,
-        first200Chars: content.content.substring(0, 200)
-      }
+      message: "Order status updated",
+      order,
     });
   } catch (error) {
-    console.error("Debug error:", error);
-    res.status(500).json({ success: false, message: error.message });
+    console.error("Update order status error:", error);
+    res.status(500).json({ error: "Failed to update order status", details: error.message });
   }
 });
 
-// ============================================
-// CONTENT RETRIEVAL ENDPOINTS
-// ============================================
-app.get("/public/content/:chapterId", async (req, res) => {
+// Cancel order (User)
+app.post("/api/orders/:orderId/cancel", async (req, res) => {
   try {
-    const content = await ChapterContentModel.findOne({ chapterId: req.params.chapterId });
-    
-    if (!content) {
-      return res.json({ 
-        success: true, 
-        content: null,
-        message: "No content available for this chapter" 
-      });
+    const { orderId } = req.params;
+    const { mobile, chatbotId } = req.body;
+
+    if (!mobile || !chatbotId) {
+      return res.status(400).json({ error: "Mobile and chatbotId are required" });
     }
-    
-    res.json({ 
-      success: true, 
-      content: {
-        chapterId: content.chapterId,
-        content: content.content,
-        fileName: content.fileName,
-        size: content.size,
-        extractionMethod: content.extractionMethod,
-        qualityMetrics: content.qualityMetrics,
-        createdAt: content.createdAt
-      }
+
+    const provider = await Provider.findOne({ chatbotId });
+    if (!provider) {
+      return res.status(404).json({ error: "Chatbot not found" });
+    }
+
+    const user = await User.findOne({ mobile, chatbotId });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const order = await Order.findOne({ orderId, userId: user._id });
+
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+
+    if (["completed", "cancelled"].includes(order.status)) {
+      return res.status(400).json({ error: `Order cannot be cancelled. Current status: ${order.status}` });
+    }
+
+    order.status = "cancelled";
+    order.updatedAt = new Date();
+    await order.save();
+
+    res.json({
+      message: "Order cancelled successfully",
+      order,
     });
   } catch (error) {
-    console.error("Error fetching content:", error);
-    res.status(500).json({ success: false, message: "Server error" });
+    console.error("Cancel order error:", error);
+    res.status(500).json({ error: "Failed to cancel order", details: error.message });
   }
 });
 
-app.post("/public/content/multiple", async (req, res) => {
-  try {
-    const { chapterIds } = req.body;
-    if (!Array.isArray(chapterIds) || chapterIds.length === 0) {
-      return res.status(400).json({ success: false, message: "chapterIds array required" });
-    }
-
-    const items = await ChapterContentModel.find({ chapterId: { $in: chapterIds } });
-    
-    const formattedItems = items.map(item => ({
-      chapterId: item.chapterId,
-      content: item.content,
-      fileName: item.fileName,
-      size: item.size,
-      extractionMethod: item.extractionMethod,
-      qualityMetrics: item.qualityMetrics
-    }));
-    
-    const combinedText = items.map(i => i.content).join("\n\n");
-
-    res.json({ 
-      success: true, 
-      combinedText,
-      items: formattedItems,
-      count: items.length,
-      message: items.length > 0 ? 
-        `Found content for ${items.length} chapters` : 
-        "No content found for the specified chapters"
-    });
-  } catch (error) {
-    console.error("Error fetching multiple contents:", error);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
+app.listen(3000, () => {
+  console.log("Server running on port 3000");
 });
-
-// --- Get multiple chapters content (with auth) ---
-app.post("/content/multiple", verifyToken, async (req, res) => {
-  const { chapterIds } = req.body;
-  if (!Array.isArray(chapterIds) || chapterIds.length === 0)
-    return res.status(400).json({ success: false, message: "chapterIds array required" });
-
-  const items = await ChapterContentModel.find({ chapterId: { $in: chapterIds } });
-  const combinedText = items.map(i => i.content).join("\n\n");
-
-  res.json({ success: true, combinedText, items });
-});
-
-// --- PUBLIC APIs (No token required) ---
-app.get("/public/class/list", async (req, res) => {
-  const classes = await ClassModel.find();
-  const result = await Promise.all(classes.map(async cls => {
-    const subjectCount = await SubjectModel.countDocuments({ classId: cls._id });
-    return { ...cls.toObject(), subjectCount };
-  }));
-  res.json({ success: true, items: result });
-});
-
-app.get("/public/subject/list/:classId", async (req, res) => {
-  const subjects = await SubjectModel.find({ classId: req.params.classId });
-  const result = await Promise.all(subjects.map(async subj => {
-    const bookCount = await BookModel.countDocuments({ subjectId: subj._id });
-    return { ...subj.toObject(), bookCount };
-  }));
-  res.json({ success: true, items: result });
-});
-
-app.get("/public/book/list/:subjectId", async (req, res) => {
-  const books = await BookModel.find({ subjectId: req.params.subjectId });
-  const result = await Promise.all(books.map(async book => {
-    const chapterCount = await ChapterModel.countDocuments({ bookId: book._id });
-    return { ...book.toObject(), chapterCount };
-  }));
-  res.json({ success: true, items: result });
-});
-
-// app.get("/public/chapter/list/:bookId", async (req, res) => {
-//   const chapters = await ChapterModel.find({ bookId: req.params.bookId });
-//   const result = await Promise.all(chapters.map(async chap => {
-//     const pdfCount = await ChapterContentModel.countDocuments({ chapterId: chap._id });
-//     return { ...chap.toObject(), pdfCount };
-//   }));
-//   res.json({ success: true, items: result });
-// });
-
-app.get("/public/chapter/list/:bookId", async (req, res) => {
-  try {
-    const { bookId } = req.params;
-
-    // 1. Find the book
-    const book = await BookModel.findById(bookId).lean();
-    if (!book) {
-      return res.status(404).json({ success: false, message: "Book not found" });
-    }
-
-    // 2. Fetch enabled features from your external API (or DB if stored locally)
-    let enabledFeatures = ["chat", "notes"]; // default fallback
-    try {
-      const featuresRes = await fetch(
-        `https://education-c0c9.onrender.com/public/book/features/${bookId}`
-      );
-      if (featuresRes.ok) {
-        const data = await featuresRes.json();
-        if (data.views && Array.isArray(data.views) && data.views.length > 0) {
-          enabledFeatures = data.views;
-        }
-      }
-    } catch (err) {
-      console.warn("Could not fetch features for book:", bookId, err.message);
-      // Continue with defaults
-    }
-
-    // 3. Fetch chapters
-    const chapters = await ChapterModel.find({ bookId }).lean();
-
-    const result = await Promise.all(
-      chapters.map(async (chap) => {
-        const pdfCount = await ChapterContentModel.countDocuments({ chapterId: chap._id });
-        return {
-          ...chap,
-          _id: chap._id.toString(),
-          pdfCount,
-          hasContent: pdfCount > 0,
-        };
-      })
-    );
-
-    // 4. Return enriched response
-    res.json({
-      success: true,
-      book: {
-        _id: book._id.toString(),
-        name: book.name,
-        features: enabledFeatures, // This is what you wanted!
-      },
-      chapters: result,
-    });
-  } catch (error) {
-    console.error("Error in /public/chapter/list/:bookId:", error);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-});
-//Book add 
-app.post("/book/features/update", verifyToken, async (req, res) => {
-  try {
-    const { bookId, views } = req.body;
-
-    if (!bookId) {
-      return res.status(400).json({ success: false, message: "bookId is required" });
-    }
-
-    if (!Array.isArray(views) || views.length === 0) {
-      return res.status(400).json({ success: false, message: "Please select at least one feature" });
-    }
-
-    const validFeatures = [
-      "chat", "mcq", "game", "notes", "flashcards",
-      "mistakes", "paper", "definitions", "summary",
-      "voice", "lessionplan", "assignment"
-    ];
-
-    const invalid = views.filter(v => !validFeatures.includes(v));
-    if (invalid.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid features: ${invalid.join(", ")}`
-      });
-    }
-
-    // Check if book exists
-    const book = await BookModel.findById(bookId);
-    if (!book) {
-      return res.status(404).json({ success: false, message: "Book not found" });
-    }
-
-    const updated = await BookFeatureModel.findOneAndUpdate(
-      { bookId },
-      { views },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
-
-    res.json({
-      success: true,
-      message: "Features updated successfully!",
-      bookId: bookId,
-      views: updated.views,
-      updatedAt: updated.updatedAt
-    });
-
-  } catch (err) {
-    console.error("Feature update error:", err);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-});
-
-// ============================================
-// 2. GET FEATURES FOR A BOOK (For Edit Screen - Load Current Selection)
-// ============================================
-app.get("/book/features/:bookId", verifyToken, async (req, res) => {
-  try {
-    const { bookId } = req.params;
-
-    const feature = await BookFeatureModel.findOne({ bookId });
-
-    const defaultViews = ["chat", "notes"];
-    const currentViews = feature ? feature.views : defaultViews;
-
-    res.json({
-      success: true,
-      bookId,
-      views: currentViews,
-      isUsingDefault: !feature
-    });
-
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// ============================================
-// 3. PUBLIC: Get Features (Frontend Uses This to Show/Hide Buttons)
-// ============================================
-app.get("/public/book/features/:bookId", async (req, res) => {
-  try {
-    const feature = await BookFeatureModel.findOne({ bookId: req.params.bookId });
-
-    const views = feature?.views || ["chat", "notes"]; // fallback
-
-    res.json({
-      success: true,
-      bookId: req.params.bookId,
-      views,
-      enabled: {
-        chat: views.includes("chat"),
-        mcq: views.includes("mcq"),
-        game: views.includes("game"),
-        notes: views.includes("notes"),
-        flashcards: views.includes("flashcards"),
-        mistakes: views.includes("mistakes"),
-        paper: views.includes("paper"),
-        definitions: views.includes("definitions"),
-        summary: views.includes("summary"),
-        voice: views.includes("voice"),
-        lessionplan: views.includes("lessionplan"),
-        assignment: views.includes("assignment")
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// --- Start server ---
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
