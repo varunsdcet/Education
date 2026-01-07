@@ -1,6 +1,6 @@
 # User API Documentation
 
-Base URL: `http://localhost:3000`
+Base URL: `https://education-c0c9.onrender.com`
 
 User APIs are public and don't require authentication. Users interact with specific chatbots identified by `chatbotId`.
 
@@ -11,7 +11,7 @@ User APIs are public and don't require authentication. Users interact with speci
 ### 1. List All Available Chatbots
 
 ```bash
-curl -X GET http://localhost:3000/api/chatbots
+curl -X GET https://education-c0c9.onrender.com/api/chatbots
 ```
 
 **Response:**
@@ -43,7 +43,7 @@ curl -X GET http://localhost:3000/api/chatbots
 ### 2. Get Products by ChatbotId
 
 ```bash
-curl -X GET http://localhost:3000/api/products/photographyshop
+curl -X GET https://education-c0c9.onrender.com/api/products/photographyshop
 ```
 
 **Response:**
@@ -82,7 +82,7 @@ Users must register with a specific chatbot. Each chatbot has its own user base.
 
 **First message:**
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "Hi",
@@ -99,7 +99,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 
 **Provide name:**
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "John Doe",
@@ -116,7 +116,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 
 **Provide mobile:**
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "1234567890",
@@ -141,7 +141,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 ### 4. Browse Products via Chatbot
 
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "show products",
@@ -164,7 +164,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 
 **Step 1: Start order**
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "I want to order",
@@ -181,7 +181,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 
 **Step 2: Select product**
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "Exterior Photos Only",
@@ -191,7 +191,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 
 **Step 3: Provide quantity**
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "2",
@@ -201,7 +201,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 
 **Step 4: Provide address**
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "123 Main Street, City, State 12345",
@@ -211,7 +211,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 
 **Step 5: Choose payment (COD)**
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "COD",
@@ -236,7 +236,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 ### 6. Check Order Status via Chatbot
 
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "order status ORD1234567890ABC",
@@ -253,7 +253,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 
 **Or check all orders:**
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "my orders",
@@ -266,7 +266,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 ### 7. Cancel Order via Chatbot
 
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "cancel ORD1234567890ABC",
@@ -288,7 +288,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 ### 8. Get Order by ID
 
 ```bash
-curl -X GET http://localhost:3000/api/orders/ORD1234567890ABC
+curl -X GET https://education-c0c9.onrender.com/api/orders/ORD1234567890ABC
 ```
 
 **Response:**
@@ -324,7 +324,7 @@ curl -X GET http://localhost:3000/api/orders/ORD1234567890ABC
 ### 9. Get User Order History
 
 ```bash
-curl -X GET http://localhost:3000/api/orders/photographyshop/1234567890
+curl -X GET https://education-c0c9.onrender.com/api/orders/photographyshop/1234567890
 ```
 
 **Response:**
@@ -352,7 +352,7 @@ curl -X GET http://localhost:3000/api/orders/photographyshop/1234567890
 ### 10. Cancel Order
 
 ```bash
-curl -X POST http://localhost:3000/api/orders/ORD1234567890ABC/cancel \
+curl -X POST https://education-c0c9.onrender.com/api/orders/ORD1234567890ABC/cancel \
   -H "Content-Type: application/json" \
   -d '{
     "mobile": "1234567890",
@@ -378,7 +378,7 @@ curl -X POST http://localhost:3000/api/orders/ORD1234567890ABC/cancel \
 ### 11. Get Payment Link
 
 ```bash
-curl -X GET http://localhost:3000/api/payment/ORD1234567890ABC
+curl -X GET https://education-c0c9.onrender.com/api/payment/ORD1234567890ABC
 ```
 
 **Response:**
@@ -386,7 +386,7 @@ curl -X GET http://localhost:3000/api/payment/ORD1234567890ABC
 {
   "orderId": "ORD1234567890ABC",
   "totalAmount": 258,
-  "paymentLink": "http://localhost:3000/api/payment/ORD1234567890ABC",
+  "paymentLink": "https://education-c0c9.onrender.com/api/payment/ORD1234567890ABC",
   "status": "payment_pending"
 }
 ```
@@ -396,7 +396,7 @@ curl -X GET http://localhost:3000/api/payment/ORD1234567890ABC
 ### 12. Confirm Payment
 
 ```bash
-curl -X POST http://localhost:3000/api/payment/ORD1234567890ABC \
+curl -X POST https://education-c0c9.onrender.com/api/payment/ORD1234567890ABC \
   -H "Content-Type: application/json" \
   -d '{
     "paymentId": "PAY1234567890",
@@ -447,10 +447,10 @@ curl -X POST http://localhost:3000/api/payment/ORD1234567890ABC \
 
 ```bash
 # 1. List available chatbots
-curl -X GET http://localhost:3000/api/chatbots
+curl -X GET https://education-c0c9.onrender.com/api/chatbots
 
 # 2. User chooses "photographyshop" and starts chatting
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{"message": "Hi", "sessionId": "user123"}'
 

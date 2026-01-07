@@ -199,7 +199,7 @@ Content-Type: application/json
 
 ### Step 1: Register Provider
 ```bash
-curl -X POST http://localhost:3000/api/provider/register \
+curl -X POST https://education-c0c9.onrender.com/api/provider/register \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Photography Services",
@@ -222,13 +222,13 @@ POST /chat/photographyservices
 
 ### Step 3: Provider Views Orders
 ```bash
-curl -X GET http://localhost:3000/api/provider/orders \
+curl -X GET https://education-c0c9.onrender.com/api/provider/orders \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 ### Step 4: Provider Updates Status
 ```bash
-curl -X PATCH http://localhost:3000/api/provider/orders/ORD12345 \
+curl -X PATCH https://education-c0c9.onrender.com/api/provider/orders/ORD12345 \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"status": "completed"}'

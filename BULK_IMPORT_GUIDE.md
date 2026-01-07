@@ -10,7 +10,7 @@ You can import multiple products at once by pasting your product list with price
 **Auth:** Required (Bearer token)
 
 ```bash
-curl -X POST http://localhost:3000/api/products/bulk-import \
+curl -X POST https://education-c0c9.onrender.com/api/products/bulk-import \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
@@ -49,7 +49,7 @@ curl -X POST http://localhost:3000/api/products/bulk-import \
 **Auth:** Required (Bearer token)
 
 ```bash
-curl -X POST http://localhost:3000/api/products/bulk \
+curl -X POST https://education-c0c9.onrender.com/api/products/bulk \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
@@ -91,7 +91,7 @@ $159.00
 
 ```bash
 # 1. Login as provider
-curl -X POST http://localhost:3000/api/provider/login \
+curl -X POST https://education-c0c9.onrender.com/api/provider/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "shop@example.com",
@@ -100,7 +100,7 @@ curl -X POST http://localhost:3000/api/provider/login \
 # Response contains token
 
 # 2. Import products
-curl -X POST http://localhost:3000/api/products/bulk-import \
+curl -X POST https://education-c0c9.onrender.com/api/products/bulk-import \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{

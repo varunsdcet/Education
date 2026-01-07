@@ -1,6 +1,6 @@
 # Provider API Documentation
 
-Base URL: `http://localhost:3000`
+Base URL: `https://education-c0c9.onrender.com`
 
 All provider endpoints require authentication except registration and login.
 
@@ -11,7 +11,7 @@ All provider endpoints require authentication except registration and login.
 ### 1. Register Provider
 
 ```bash
-curl -X POST http://localhost:3000/api/provider/register \
+curl -X POST https://education-c0c9.onrender.com/api/provider/register \
   -H "Content-Type: application/json" \
   -d '{
     "name": "My Photography Shop",
@@ -22,7 +22,7 @@ curl -X POST http://localhost:3000/api/provider/register \
 
 **With custom chatbotId:**
 ```bash
-curl -X POST http://localhost:3000/api/provider/register \
+curl -X POST https://education-c0c9.onrender.com/api/provider/register \
   -H "Content-Type: application/json" \
   -d '{
     "name": "My Photography Shop",
@@ -53,7 +53,7 @@ curl -X POST http://localhost:3000/api/provider/register \
 ### 2. Login Provider
 
 ```bash
-curl -X POST http://localhost:3000/api/provider/login \
+curl -X POST https://education-c0c9.onrender.com/api/provider/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "photo@example.com",
@@ -87,7 +87,7 @@ export TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 ### 3. Add Single Product
 
 ```bash
-curl -X POST http://localhost:3000/api/products \
+curl -X POST https://education-c0c9.onrender.com/api/products \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
@@ -119,7 +119,7 @@ curl -X POST http://localhost:3000/api/products \
 ### 4. Bulk Import Products from Text
 
 ```bash
-curl -X POST http://localhost:3000/api/products/bulk-import \
+curl -X POST https://education-c0c9.onrender.com/api/products/bulk-import \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
@@ -151,7 +151,7 @@ curl -X POST http://localhost:3000/api/products/bulk-import \
 ### 5. Bulk Add Products (Array Format)
 
 ```bash
-curl -X POST http://localhost:3000/api/products/bulk \
+curl -X POST https://education-c0c9.onrender.com/api/products/bulk \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
@@ -177,7 +177,7 @@ curl -X POST http://localhost:3000/api/products/bulk \
 ### 6. Get My Products
 
 ```bash
-curl -X GET http://localhost:3000/api/provider/products \
+curl -X GET https://education-c0c9.onrender.com/api/provider/products \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -203,18 +203,18 @@ curl -X GET http://localhost:3000/api/provider/products \
 ### 7. Get All Orders
 
 ```bash
-curl -X GET http://localhost:3000/api/provider/orders \
+curl -X GET https://education-c0c9.onrender.com/api/provider/orders \
   -H "Authorization: Bearer $TOKEN"
 ```
 
 **With filters:**
 ```bash
 # Filter by status
-curl -X GET "http://localhost:3000/api/provider/orders?status=confirmed" \
+curl -X GET "https://education-c0c9.onrender.com/api/provider/orders?status=confirmed" \
   -H "Authorization: Bearer $TOKEN"
 
 # Pagination
-curl -X GET "http://localhost:3000/api/provider/orders?page=1&limit=20" \
+curl -X GET "https://education-c0c9.onrender.com/api/provider/orders?page=1&limit=20" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -256,7 +256,7 @@ curl -X GET "http://localhost:3000/api/provider/orders?page=1&limit=20" \
 ### 8. Get New/Pending Orders
 
 ```bash
-curl -X GET http://localhost:3000/api/provider/orders/new \
+curl -X GET https://education-c0c9.onrender.com/api/provider/orders/new \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -273,7 +273,7 @@ curl -X GET http://localhost:3000/api/provider/orders/new \
 ### 9. Get Order Statistics
 
 ```bash
-curl -X GET http://localhost:3000/api/provider/orders/stats \
+curl -X GET https://education-c0c9.onrender.com/api/provider/orders/stats \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -305,7 +305,7 @@ curl -X GET http://localhost:3000/api/provider/orders/stats \
 ### 10. Update Order Status
 
 ```bash
-curl -X PATCH http://localhost:3000/api/provider/orders/ORD1234567890ABC \
+curl -X PATCH https://education-c0c9.onrender.com/api/provider/orders/ORD1234567890ABC \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{

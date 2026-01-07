@@ -48,7 +48,7 @@ MONGO_URI=mongodb+srv://username:password@cluster.mongodb.net/database?retryWrit
 JWT_SECRET=your-secret-key-here
 
 # Base URL (optional)
-BASE_URL=http://localhost:3000
+BASE_URL=https://education-c0c9.onrender.com
 ```
 
 ### 3. Start Server
@@ -57,7 +57,7 @@ BASE_URL=http://localhost:3000
 npm start
 ```
 
-Server will run on `http://localhost:3000`
+Server will run on `https://education-c0c9.onrender.com`
 
 ## API Documentation
 
@@ -70,7 +70,7 @@ Server will run on `http://localhost:3000`
 ### 1. Register a Provider
 
 ```bash
-curl -X POST http://localhost:3000/api/provider/register \
+curl -X POST https://education-c0c9.onrender.com/api/provider/register \
   -H "Content-Type: application/json" \
   -d '{
     "name": "My Shop",
@@ -82,7 +82,7 @@ curl -X POST http://localhost:3000/api/provider/register \
 ### 2. Add Products
 
 ```bash
-curl -X POST http://localhost:3000/api/products \
+curl -X POST https://education-c0c9.onrender.com/api/products \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -95,7 +95,7 @@ curl -X POST http://localhost:3000/api/products \
 ### 3. User Chats with Bot
 
 ```bash
-curl -X POST http://localhost:3000/chat/YOUR_CHATBOT_ID \
+curl -X POST https://education-c0c9.onrender.com/chat/YOUR_CHATBOT_ID \
   -H "Content-Type: application/json" \
   -d '{
     "message": "Hi",

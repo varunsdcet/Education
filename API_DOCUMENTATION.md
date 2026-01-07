@@ -212,7 +212,7 @@ Response:
 {
   "orderId": "ORD12345",
   "totalAmount": 159998,
-  "paymentLink": "http://localhost:3000/api/payment/ORD12345",
+  "paymentLink": "https://education-c0c9.onrender.com/api/payment/ORD12345",
   "status": "payment_pending"
 }
 ```
@@ -244,17 +244,17 @@ Response:
 
 ### Step 1: User Registration
 ```bash
-curl -X POST http://localhost:3000/chat/shopchatbot \
+curl -X POST https://education-c0c9.onrender.com/chat/shopchatbot \
   -H "Content-Type: application/json" \
   -d '{"message": "Hi", "sessionId": "user123"}'
 # Response: "Welcome! You are a new user. What's your name?"
 
-curl -X POST http://localhost:3000/chat/shopchatbot \
+curl -X POST https://education-c0c9.onrender.com/chat/shopchatbot \
   -H "Content-Type: application/json" \
   -d '{"message": "John", "sessionId": "user123"}'
 # Response: "Nice to meet you, John! What's your mobile number?"
 
-curl -X POST http://localhost:3000/chat/shopchatbot \
+curl -X POST https://education-c0c9.onrender.com/chat/shopchatbot \
   -H "Content-Type: application/json" \
   -d '{"message": "1234567890", "sessionId": "user123"}'
 # Response: "Thanks John! How can I help you today?"
@@ -262,7 +262,7 @@ curl -X POST http://localhost:3000/chat/shopchatbot \
 
 ### Step 2: Browse Products
 ```bash
-curl -X POST http://localhost:3000/chat/shopchatbot \
+curl -X POST https://education-c0c9.onrender.com/chat/shopchatbot \
   -H "Content-Type: application/json" \
   -d '{"message": "show products", "sessionId": "user123"}'
 # Response: List of products
@@ -270,27 +270,27 @@ curl -X POST http://localhost:3000/chat/shopchatbot \
 
 ### Step 3: Place Order
 ```bash
-curl -X POST http://localhost:3000/chat/shopchatbot \
+curl -X POST https://education-c0c9.onrender.com/chat/shopchatbot \
   -H "Content-Type: application/json" \
   -d '{"message": "I want to order", "sessionId": "user123"}'
 # Response: Shows products and asks which product
 
-curl -X POST http://localhost:3000/chat/shopchatbot \
+curl -X POST https://education-c0c9.onrender.com/chat/shopchatbot \
   -H "Content-Type: application/json" \
   -d '{"message": "iPhone 15", "sessionId": "user123"}'
 # Response: "Great choice! iPhone 15 - ₹79999. How many do you want?"
 
-curl -X POST http://localhost:3000/chat/shopchatbot \
+curl -X POST https://education-c0c9.onrender.com/chat/shopchatbot \
   -H "Content-Type: application/json" \
   -d '{"message": "2", "sessionId": "user123"}'
 # Response: "Total: ₹159998. Please provide your delivery address:"
 
-curl -X POST http://localhost:3000/chat/shopchatbot \
+curl -X POST https://education-c0c9.onrender.com/chat/shopchatbot \
   -H "Content-Type: application/json" \
   -d '{"message": "123 Main St, City", "sessionId": "user123"}'
 # Response: "Address saved. Please choose payment method: Online or COD"
 
-curl -X POST http://localhost:3000/chat/shopchatbot \
+curl -X POST https://education-c0c9.onrender.com/chat/shopchatbot \
   -H "Content-Type: application/json" \
   -d '{"message": "COD", "sessionId": "user123"}'
 # Response: "✅ Order confirmed! Order ID: ORD12345..."
@@ -298,7 +298,7 @@ curl -X POST http://localhost:3000/chat/shopchatbot \
 
 ### Step 4: Check Order Status
 ```bash
-curl -X POST http://localhost:3000/chat/shopchatbot \
+curl -X POST https://education-c0c9.onrender.com/chat/shopchatbot \
   -H "Content-Type: application/json" \
   -d '{"message": "order status ORD12345", "sessionId": "user123"}'
 # Response: Full order details

@@ -1,6 +1,6 @@
 # Complete API Documentation with cURL Examples
 
-Base URL: `http://localhost:3000`
+Base URL: `https://education-c0c9.onrender.com`
 
 ---
 
@@ -19,7 +19,7 @@ Base URL: `http://localhost:3000`
 
 **Auto-generate chatbotId:**
 ```bash
-curl -X POST http://localhost:3000/api/provider/register \
+curl -X POST https://education-c0c9.onrender.com/api/provider/register \
   -H "Content-Type: application/json" \
   -d '{
     "name": "My Photography Shop",
@@ -30,7 +30,7 @@ curl -X POST http://localhost:3000/api/provider/register \
 
 **With custom chatbotId:**
 ```bash
-curl -X POST http://localhost:3000/api/provider/register \
+curl -X POST https://education-c0c9.onrender.com/api/provider/register \
   -H "Content-Type: application/json" \
   -d '{
     "name": "My Photography Shop",
@@ -59,7 +59,7 @@ curl -X POST http://localhost:3000/api/provider/register \
 ### 2. Login Provider
 
 ```bash
-curl -X POST http://localhost:3000/api/provider/login \
+curl -X POST https://education-c0c9.onrender.com/api/provider/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "photo@example.com",
@@ -93,7 +93,7 @@ export TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 ### 3. Add Single Product
 
 ```bash
-curl -X POST http://localhost:3000/api/products \
+curl -X POST https://education-c0c9.onrender.com/api/products \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
@@ -125,7 +125,7 @@ curl -X POST http://localhost:3000/api/products \
 ### 4. Bulk Import Products from Text
 
 ```bash
-curl -X POST http://localhost:3000/api/products/bulk-import \
+curl -X POST https://education-c0c9.onrender.com/api/products/bulk-import \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
@@ -157,7 +157,7 @@ curl -X POST http://localhost:3000/api/products/bulk-import \
 ### 5. Bulk Add Products (Array Format)
 
 ```bash
-curl -X POST http://localhost:3000/api/products/bulk \
+curl -X POST https://education-c0c9.onrender.com/api/products/bulk \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
@@ -195,7 +195,7 @@ curl -X POST http://localhost:3000/api/products/bulk \
 ### 6. Get Products by ChatbotId (Public)
 
 ```bash
-curl -X GET http://localhost:3000/api/products/photographyshop
+curl -X GET https://education-c0c9.onrender.com/api/products/photographyshop
 ```
 
 **Response:**
@@ -218,7 +218,7 @@ curl -X GET http://localhost:3000/api/products/photographyshop
 ### 7. Get My Products (Provider Only)
 
 ```bash
-curl -X GET http://localhost:3000/api/provider/products \
+curl -X GET https://education-c0c9.onrender.com/api/provider/products \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -244,7 +244,7 @@ curl -X GET http://localhost:3000/api/provider/products \
 
 **First message:**
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "Hi",
@@ -261,7 +261,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 
 **Provide name:**
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "John Doe",
@@ -278,7 +278,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 
 **Provide mobile:**
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "1234567890",
@@ -298,7 +298,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 ### 9. Browse Products via Chatbot
 
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "show products",
@@ -319,7 +319,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 
 **Step 1: Start order**
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "I want to place an order",
@@ -336,7 +336,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 
 **Step 2: Select product**
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "Exterior Photos Only",
@@ -353,7 +353,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 
 **Step 3: Provide quantity**
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "2",
@@ -370,7 +370,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 
 **Step 4: Provide address**
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "123 Main Street, City, State 12345",
@@ -387,7 +387,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 
 **Step 5: Choose payment (COD)**
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "COD",
@@ -404,7 +404,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 
 **Step 5 Alternative: Choose payment (Online)**
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "Online",
@@ -415,7 +415,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 **Response:**
 ```json
 {
-  "reply": "✅ Order created!\nOrder ID: ORD1234567890ABC\nTotal: ₹258\n\n🔗 Payment Link: http://localhost:3000/api/payment/ORD1234567890ABC\n\nPlease complete the payment to confirm your order."
+  "reply": "✅ Order created!\nOrder ID: ORD1234567890ABC\nTotal: ₹258\n\n🔗 Payment Link: https://education-c0c9.onrender.com/api/payment/ORD1234567890ABC\n\nPlease complete the payment to confirm your order."
 }
 ```
 
@@ -424,7 +424,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 ### 11. Check Order Status via Chatbot
 
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "order status ORD1234567890ABC",
@@ -441,7 +441,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 
 **Or check all orders:**
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "my orders",
@@ -454,7 +454,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 ### 12. Cancel Order via Chatbot
 
 ```bash
-curl -X POST http://localhost:3000/chat/photographyshop \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyshop \
   -H "Content-Type: application/json" \
   -d '{
     "message": "cancel ORD1234567890ABC",
@@ -476,7 +476,7 @@ curl -X POST http://localhost:3000/chat/photographyshop \
 ### 13. Get Order by ID
 
 ```bash
-curl -X GET http://localhost:3000/api/orders/ORD1234567890ABC
+curl -X GET https://education-c0c9.onrender.com/api/orders/ORD1234567890ABC
 ```
 
 **Response:**
@@ -513,7 +513,7 @@ curl -X GET http://localhost:3000/api/orders/ORD1234567890ABC
 ### 14. Get User Order History
 
 ```bash
-curl -X GET http://localhost:3000/api/orders/photographyshop/1234567890
+curl -X GET https://education-c0c9.onrender.com/api/orders/photographyshop/1234567890
 ```
 
 **Response:**
@@ -536,18 +536,18 @@ curl -X GET http://localhost:3000/api/orders/photographyshop/1234567890
 ### 15. Get All Provider Orders
 
 ```bash
-curl -X GET http://localhost:3000/api/provider/orders \
+curl -X GET https://education-c0c9.onrender.com/api/provider/orders \
   -H "Authorization: Bearer $TOKEN"
 ```
 
 **With filters:**
 ```bash
 # Filter by status
-curl -X GET "http://localhost:3000/api/provider/orders?status=confirmed" \
+curl -X GET "https://education-c0c9.onrender.com/api/provider/orders?status=confirmed" \
   -H "Authorization: Bearer $TOKEN"
 
 # Pagination
-curl -X GET "http://localhost:3000/api/provider/orders?page=1&limit=20" \
+curl -X GET "https://education-c0c9.onrender.com/api/provider/orders?page=1&limit=20" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -586,7 +586,7 @@ curl -X GET "http://localhost:3000/api/provider/orders?page=1&limit=20" \
 ### 16. Get New/Pending Orders (Provider)
 
 ```bash
-curl -X GET http://localhost:3000/api/provider/orders/new \
+curl -X GET https://education-c0c9.onrender.com/api/provider/orders/new \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -603,7 +603,7 @@ curl -X GET http://localhost:3000/api/provider/orders/new \
 ### 17. Get Order Statistics (Provider)
 
 ```bash
-curl -X GET http://localhost:3000/api/provider/orders/stats \
+curl -X GET https://education-c0c9.onrender.com/api/provider/orders/stats \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -635,7 +635,7 @@ curl -X GET http://localhost:3000/api/provider/orders/stats \
 ### 18. Update Order Status (Provider)
 
 ```bash
-curl -X PATCH http://localhost:3000/api/provider/orders/ORD1234567890ABC \
+curl -X PATCH https://education-c0c9.onrender.com/api/provider/orders/ORD1234567890ABC \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
@@ -668,7 +668,7 @@ curl -X PATCH http://localhost:3000/api/provider/orders/ORD1234567890ABC \
 ### 19. Cancel Order (User)
 
 ```bash
-curl -X POST http://localhost:3000/api/orders/ORD1234567890ABC/cancel \
+curl -X POST https://education-c0c9.onrender.com/api/orders/ORD1234567890ABC/cancel \
   -H "Content-Type: application/json" \
   -d '{
     "mobile": "1234567890",
@@ -694,7 +694,7 @@ curl -X POST http://localhost:3000/api/orders/ORD1234567890ABC/cancel \
 ### 20. Get Payment Link
 
 ```bash
-curl -X GET http://localhost:3000/api/payment/ORD1234567890ABC
+curl -X GET https://education-c0c9.onrender.com/api/payment/ORD1234567890ABC
 ```
 
 **Response:**
@@ -702,7 +702,7 @@ curl -X GET http://localhost:3000/api/payment/ORD1234567890ABC
 {
   "orderId": "ORD1234567890ABC",
   "totalAmount": 258,
-  "paymentLink": "http://localhost:3000/api/payment/ORD1234567890ABC",
+  "paymentLink": "https://education-c0c9.onrender.com/api/payment/ORD1234567890ABC",
   "status": "payment_pending"
 }
 ```
@@ -712,7 +712,7 @@ curl -X GET http://localhost:3000/api/payment/ORD1234567890ABC
 ### 21. Confirm Payment
 
 ```bash
-curl -X POST http://localhost:3000/api/payment/ORD1234567890ABC \
+curl -X POST https://education-c0c9.onrender.com/api/payment/ORD1234567890ABC \
   -H "Content-Type: application/json" \
   -d '{
     "paymentId": "PAY1234567890",
@@ -738,7 +738,7 @@ curl -X POST http://localhost:3000/api/payment/ORD1234567890ABC \
 
 ### 1. Register Provider
 ```bash
-curl -X POST http://localhost:3000/api/provider/register \
+curl -X POST https://education-c0c9.onrender.com/api/provider/register \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Photography Services",
@@ -751,7 +751,7 @@ export TOKEN="..."
 
 ### 2. Add Products
 ```bash
-curl -X POST http://localhost:3000/api/products/bulk-import \
+curl -X POST https://education-c0c9.onrender.com/api/products/bulk-import \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
@@ -762,12 +762,12 @@ curl -X POST http://localhost:3000/api/products/bulk-import \
 ### 3. Customer Chats and Orders
 ```bash
 # Register
-curl -X POST http://localhost:3000/chat/photographyservices \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyservices \
   -H "Content-Type: application/json" \
   -d '{"message": "Hi", "sessionId": "user1"}'
 
 # Browse
-curl -X POST http://localhost:3000/chat/photographyservices \
+curl -X POST https://education-c0c9.onrender.com/chat/photographyservices \
   -H "Content-Type: application/json" \
   -d '{"message": "show products", "sessionId": "user1"}'
 
@@ -776,13 +776,13 @@ curl -X POST http://localhost:3000/chat/photographyservices \
 
 ### 4. Provider Views Orders
 ```bash
-curl -X GET http://localhost:3000/api/provider/orders \
+curl -X GET https://education-c0c9.onrender.com/api/provider/orders \
   -H "Authorization: Bearer $TOKEN"
 ```
 
 ### 5. Provider Updates Status
 ```bash
-curl -X PATCH http://localhost:3000/api/provider/orders/ORD12345 \
+curl -X PATCH https://education-c0c9.onrender.com/api/provider/orders/ORD12345 \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"status": "completed"}'

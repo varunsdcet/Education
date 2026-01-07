@@ -101,7 +101,7 @@ GET /api/orders/photographyshop/1234567890
 
 ### Step 1: User Discovers Chatbots
 ```bash
-curl -X GET http://localhost:3000/api/chatbots
+curl -X GET https://education-c0c9.onrender.com/api/chatbots
 # Response: List of all available chatbots
 ```
 
