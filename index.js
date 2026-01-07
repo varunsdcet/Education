@@ -566,7 +566,7 @@ app.post("/chat/:chatbotId", async (req, res) => {
         try {
           const totalAmount = order.productPrice * order.quantity;
           const orderId = `ORD${Date.now()}${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
-          const paymentLink = `${process.env.BASE_URL || "http://localhost:3000"}/api/payment/${orderId}`;
+          const paymentLink = `https://education-c0c9.onrender.com/api/payment/${orderId}`;
 
           const newOrder = new Order({
             orderId,

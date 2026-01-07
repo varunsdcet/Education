@@ -46,9 +46,6 @@ MONGO_URI=mongodb+srv://username:password@cluster.mongodb.net/database?retryWrit
 
 # JWT Secret
 JWT_SECRET=your-secret-key-here
-
-# Base URL (optional)
-BASE_URL=https://education-c0c9.onrender.com
 ```
 
 ### 3. Start Server
